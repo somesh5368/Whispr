@@ -17,7 +17,7 @@ function Home() {
           
 
             {/* Centered child div */}
-            <div className="flex justify-center items-center mx-auto h-[95vh] w-[160vh] mt-10 shadow-zinc-900 bg-white text-black p-8 rounded-md shadow-lg">
+            <div className=" mx-auto h-[95vh] w-[160vh] mt-5 shadow-zinc-900 bg-white text-black  rounded-md shadow-lg">
                 <Header/>
             </div>
         </div>
