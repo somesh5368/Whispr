@@ -2,6 +2,8 @@ import React from 'react';
 import bgImg from '../img/bgImg.jpg';
 import Header from '../Header/Header';
 import Chats from '../Chats/Chats';
+import Details from '../Details/Details';
+import Description from '../Description/Description';
 
 function Home() {
     return (
@@ -20,7 +22,12 @@ function Home() {
             {/* Centered child div */}
             <div className=" mx-auto h-[95vh] w-[160vh] mt-5  shadow-zinc-900 bg-white text-black  rounded-md shadow-lg">
                 <Header/>
-                <Chats/>
+                <div className='flex'>
+                    <Chats/>
+                    <Details/>
+                    <Description/>
+                </div>
+
             </div>
         </div>
     );
