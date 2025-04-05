@@ -5,7 +5,7 @@ import { BsEmojiSmile } from 'react-icons/bs';
 
 function Details({ user }) {
   return (
-    <div className="w-full lg:w-[70%] border-x-2">
+    <div className=" w-[70%] border-x-2">
       {/* User Information */}
       <div className="name p-4 flex justify-between items-center border-2 w-full">
         <div className="photo flex items-center">

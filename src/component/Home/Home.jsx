@@ -27,13 +27,13 @@ function Home() {
                     element={
                         <div className="mx-auto h-[95vh] w-[160vh] shadow-zinc-900 bg-white text-black rounded-md shadow-lg">
                             <Header />
-                            <div className="flex">
+                            <div className="flex ">
                                 {/* Left Panel: Chats */}
                                 <Chats onSelectContact={(contact) => setSelectedContact(contact)} />
 
                                 {/* Right Panel: Conditional Rendering */}
                                 {selectedContact ? (
-                                    <div className="flex">
+                                    <div className="flex w-full h-full">
                                         <Details user={selectedContact} />
                                         <Description user={selectedContact} />
                                     </div>

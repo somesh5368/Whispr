@@ -21,7 +21,7 @@ function Contact({ onSelectContact }) {
     ];
 
     return (
-        <div className="mt-4 h-[400px] overflow-y-hidden hover:overflow-y-scroll bg-gray-100 rounded-lg p-2 shadow-inner">
+        <div className="mt-4  h-[400px] overflow-y-hidden hover:overflow-y-scroll bg-gray-100 rounded-lg p-2 shadow-inner">
             {/* Dynamically render ChatsIcon components */}
             {contacts.map((contact, index) => (
                 <ChatsIcon

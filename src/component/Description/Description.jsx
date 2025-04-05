@@ -6,7 +6,7 @@ function Description({ user }) {
   const { name = "Aarav Singh", img = defaultImg, activeStatus = "20m" } = user || {};
 
   return (
-    <div className="w-[30%] border-2 p-4 bg-white">
+    <div className=" w-[30%] border-2  bg-white">
       {/* User Photo */}
       <div className="photo flex justify-center mt-5">
         <img
