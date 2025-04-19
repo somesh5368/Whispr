@@ -1,11 +1,15 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { SlCamrecorder, SlCallEnd } from 'react-icons/sl';
 import { HiOutlinePhotograph } from 'react-icons/hi';
 import { BsEmojiSmile } from 'react-icons/bs';
+import { IoIosSend } from 'react-icons/io'; // Import Send Icon
 
 function Details({ user }) {
+  // State to track the input value
+  const [message, setMessage] = useState("");
+
   return (
-    <div className=" w-[70%] border-x-2">
+    <div className="w-[70%] border-x-2">
       {/* User Information */}
       <div className="name p-4 flex justify-between items-center border-2 w-full">
         <div className="photo flex items-center">
@@ -35,15 +39,25 @@ function Details({ user }) {
           <input
             type="text"
             placeholder="Enter your message"
+            value={message} // Bind input value to state
+            onChange={(e) => setMessage(e.target.value)} // Update state on input
             className="flex-grow p-2 sm:p-3 outline-none border-none focus:ring-0 focus:outline-none text-sm sm:text-base h-full"
           />
-          <div className="flex mx-4 sm:mx-8 items-center">
-            <span className="text-xl sm:text-2xl opacity-55 mr-2 sm:mr-4">
+          <div className="flex mx-4 sm:mx-1 items-center">
+            {/* Send icon: Only appears when there's input */}
+            {message && (
+              <span className="text-xl sm:text-3xl text-blue-500 cursor-pointer mr-2">
+                <IoIosSend />
+              </span>
+            )}
+            {/* Emoji and Photo icons */}
+            <span className="text-xl sm:text-2xl opacity-55 mr-1 sm:mr-4">
               <BsEmojiSmile />
             </span>
-            <span className="text-xl sm:text-2xl opacity-55">
+            <span className="text-xl sm:text-2xl opacity-55 mr-1 sm:mr-4">
               <HiOutlinePhotograph />
             </span>
+            
           </div>
         </div>
       </div>
