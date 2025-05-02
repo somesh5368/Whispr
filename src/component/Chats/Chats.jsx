@@ -4,7 +4,7 @@ import Search from "../Search/Search";
 
 function Chats({ onSelectContact }) {
     return (
-        <div className="h-full md:w-[50%] lg:w-[25%] border-2 border-opacity-25 border-slate-950 p-1">
+        <div className="h-full md:w-[50%] lg:w-[25%] border-2 border-opacity-25 border-slate-950 p-1 flex flex-col">
             <div className="chats w-full h-12 flex justify-between items-center mx-2">
                 <span className="font-bold text-xl md:text-2xl font-medium">Chats</span>
                 <span className="text-2xl md:text-2xl pr-4">+</span>
@@ -17,7 +17,7 @@ function Chats({ onSelectContact }) {
             <div className="search mt-2">
                 <Search />
             </div>
-            <div className="contact mt-2">
+            <div className="mt-2 flex-1 overflow-hidden">
                 <Contact onSelectContact={onSelectContact} />
             </div>
         </div>
