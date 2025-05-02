@@ -9,7 +9,6 @@ import img6 from '../img/img6.jpg';
 import img7 from '../img/img7.jpg';
 
 function Contact({ onSelectContact }) {
-    // Centralized data array for contacts
     const contacts = [
         { img: img, name: "Aarav Singh", title: "hey everyone" },
         { img: img2, name: "Rameshwar Pathan", title: "I m using this..." },
@@ -21,8 +20,7 @@ function Contact({ onSelectContact }) {
     ];
 
     return (
-        <div className="mt-4  h-[400px] overflow-y-hidden hover:overflow-y-scroll bg-gray-100 rounded-lg p-2 shadow-inner">
-            {/* Dynamically render ChatsIcon components */}
+        <div className="h-[400px] overflow-y-scroll scrollbar-hide bg-gray-100 rounded-lg p-2 shadow-inner">
             {contacts.map((contact, index) => (
                 <ChatsIcon
                     key={index}

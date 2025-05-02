@@ -9,7 +9,7 @@ function Details({ user }) {
   const [message, setMessage] = useState("");
 
   return (
-    <div className="w-[70%] border-x-2">
+    <div className="w-[70%] h-[480px] border-x-2">
       {/* User Information */}
       <div className="name p-4 flex justify-between items-center border-2 w-full">
         <div className="photo flex items-center">
@@ -34,7 +34,7 @@ function Details({ user }) {
       </div>
 
       {/* Input for Messaging */}
-      <div className="other sm:mt-96">
+      <div className="other sm:mt-80">
         <div className="flex border-2 h-12 sm:h-14 mx-4 sm:mx-7 rounded-md justify-between">
           <input
             type="text"

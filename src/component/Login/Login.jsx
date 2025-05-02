@@ -1,58 +1,105 @@
+// src/components/Login.jsx
 import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import axios from 'axios';
+import { Link, useNavigate } from 'react-router-dom';
 
-function Login() {
-    const navigate = useNavigate();
-    const [username, setUsername] = useState('');
-    const [password, setPassword] = useState('');
+const Login = () => {
+  const navigate = useNavigate();
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
+  const [loading, setLoading] = useState(false);
 
-    const handleLogin = () => {
-        // Mock authentication logic
-        if (username && password) {
-            navigate('/main'); // Redirect to main components
-        } else {
-            alert('Please enter valid credentials!');
-        }
-    };
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setLoading(true);
 
-    return (
-        <div
-            className="min-h-[100vh] flex justify-center items-center bg-[#f8f9fa] border-2 border-black "
-        >
-            <div className="p-5 bg-white shadow-lg rounded-md w-[300px] text-center">
-                <h2 className="text-2xl mb-5 font-bold">Login</h2>
-                <input
-                    type="text"
-                    placeholder="Username"
-                    value={username}
-                    onChange={(e) => setUsername(e.target.value)}
-                    className="block w-full mb-3 p-2 border rounded focus:outline-none focus:ring focus:ring-blue-300"
-                />
-                <input
-                    type="password"
-                    placeholder="Password"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    className="block w-full mb-3 p-2 border rounded focus:outline-none focus:ring focus:ring-blue-300"
-                />
-                <button
-                    onClick={handleLogin}
-                    className="bg-blue-500 text-white px-4 py-2 rounded cursor-pointer hover:bg-blue-700 transition duration-300"
-                >
-                    Login
-                </button>
-                <p className="mt-3 text-sm">
-                    Don’t have credentials?{' '}
-                    <a
-                        href="/main"
-                        className="text-blue-500 underline cursor-pointer hover:text-blue-700"
-                    >
-                        Skip login and explore
-                    </a>
-                </p>
-            </div>
-        </div>
-    );
-}
+    try {
+      const res = await axios.post('http://localhost:5000/api/auth/login', {
+        email,
+        password,
+      });
+      const { token, ...userData } = res.data;
+      localStorage.setItem('token', token);
+      localStorage.setItem('user', JSON.stringify(userData));
+      
+
+      setSuccess('Login successful!');
+      setError('');
+
+      // Redirect to the main page after a short delay
+      setTimeout(() => {
+        navigate('/main');
+      }, 2000);
+
+    } catch (err) {
+      setError(err.response?.data?.message || 'Login failed');
+      setSuccess('');
+    }
+
+    setLoading(false);
+  };
+
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-gray-100 px-4">
+      <div className="w-full max-w-md bg-white p-8 rounded-xl shadow-lg">
+        <h2 className="text-2xl font-bold text-center mb-6">Login</h2>
+
+        {error && <p className="text-red-500 text-center mb-2">{error}</p>}
+        {success && <p className="text-green-500 text-center mb-2">{success}</p>}
+
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div>
+            <label className="block mb-1">Email</label>
+            <input
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              disabled={loading}
+              required
+            />
+          </div>
+          <div>
+            <label className="block mb-1">Password</label>
+            <input
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              disabled={loading}
+              required
+            />
+          </div>
+
+          <button
+            type="submit"
+            className={`w-full py-2 px-4 rounded-lg text-white font-semibold ${
+              loading ? 'bg-gray-400 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-700'
+            }`}
+            disabled={loading}
+          >
+            {loading ? (
+              <div className="flex items-center justify-center">
+                <div className="h-5 w-5 border-2 border-white border-t-transparent rounded-full animate-spin mr-2" />
+                Logging in...
+              </div>
+            ) : (
+              'Login'
+            )}
+          </button>
+        </form>
+
+        <p className="text-center text-sm mt-4">
+          Don't have an account?{' '}
+          <Link to="/register" className="text-blue-600 hover:underline">
+            Register
+          </Link>
+        </p>
+      </div>
+    </div>
+  );
+};
 
 export default Login;
