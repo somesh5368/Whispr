@@ -1,4 +1,5 @@
 // src/components/Login.jsx
+import socket from '../socket';
 import React, { useState } from 'react';
 import axios from 'axios';
 import { Link, useNavigate } from 'react-router-dom';
@@ -23,6 +24,8 @@ const Login = () => {
       const { token, ...userData } = res.data;
       localStorage.setItem('token', token);
       localStorage.setItem('user', JSON.stringify(userData));
+      
+      socket.emit('join', res.data.user._id);
       
 
       setSuccess('Login successful!');
