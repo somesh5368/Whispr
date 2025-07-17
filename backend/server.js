@@ -1,62 +1,51 @@
-const express = require('express');
-const dotenv = require('dotenv');
-const connectDB = require('./config/db');
-const authRoutes = require('./routes/authRoutes');
-const cors = require('cors');
-const http = require('http');
+const express  = require('express');
+const dotenv   = require('dotenv');
+const cors     = require('cors');
+const http     = require('http');
 const { Server } = require('socket.io');
+const connectDB = require('./config/db');
 
-// Load env variables
+// Routes
+const authRoutes    = require('./routes/authRoutes');
+const messageRoutes = require('./routes/messageRoutes');
+const userRoutes    = require('./routes/userRoutes');
+
+// Socket handler
+const socketHandler = require('./sockets/socketHandler');
+
+// ────────────────────────────────────────────────────────────
+// 1. Load env + connect DB
 dotenv.config();
-
-// Connect to DB
 connectDB();
 
-// Initialize Express
+// 2. Init express
 const app = express();
-app.use(cors());
+
+// ── CORS: allow BOTH 5173 (Vite) and 3000 (CRA) ─────────────
+const allowedOrigins = ['http://localhost:5173', 'http://localhost:3000'];
+
+app.use(cors({ origin: allowedOrigins, credentials: true }));
 app.use(express.json());
 
-// API Routes
-app.use('/api/auth', authRoutes);
+// 3. REST API routes
+app.use('/api/auth',     authRoutes);
+app.use('/api/messages', messageRoutes);
+app.use('/api/users',    userRoutes);
 
-// Create HTTP server and bind Socket.io
+// 4. Create HTTP server + Socket.IO
 const server = http.createServer(app);
 
 const io = new Server(server, {
   cors: {
-    origin: 'http://localhost:3000', // your frontend URL
-    methods: ['GET', 'POST']
+    origin: allowedOrigins,
+    methods: ['GET', 'POST'],
+    credentials: true
   }
 });
 
-// Socket.io logic
-io.on('connection', (socket) => {
-  console.log('🔌 New client connected:', socket.id);
+// 5. Attach socket logic
+socketHandler(io);
 
-  // Join user to their own room using their user ID
-  socket.on('join', (userId) => {
-    socket.join(userId);
-    console.log(`User ${userId} joined their personal room`);
-  });
-
-  // Message handling
-  socket.on('send_message', ({ senderId, receiverId, message }) => {
-    console.log(`Message from ${senderId} to ${receiverId}:`, message);
-
-    // Emit message to the receiver's room
-    io.to(receiverId).emit('receive_message', {
-      senderId,
-      message,
-      timestamp: new Date()
-    });
-  });
-
-  socket.on('disconnect', () => {
-    console.log('❌ Client disconnected:', socket.id);
-  });
-});
-
-// Start server
+// 6. Start server
 const PORT = process.env.PORT || 5000;
-server.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
+server.listen(PORT, () => console.log(`🚀  Server running on port ${PORT}`));

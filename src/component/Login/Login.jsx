@@ -1,8 +1,8 @@
 // src/components/Login.jsx
-import socket from '../socket';
 import React, { useState } from 'react';
 import axios from 'axios';
 import { Link, useNavigate } from 'react-router-dom';
+import socket from '../../utils/socket'; // Make sure this path is correct
 
 const Login = () => {
   const navigate = useNavigate();
@@ -21,20 +21,23 @@ const Login = () => {
         email,
         password,
       });
+
       const { token, ...userData } = res.data;
+
+      // Save token and user
       localStorage.setItem('token', token);
       localStorage.setItem('user', JSON.stringify(userData));
-      
-      socket.emit('join', res.data.user._id);
-      
+
+      // Emit 'join' with user ID after successful login
+      socket.emit('join', userData._id);  // ✅ Correct usage
 
       setSuccess('Login successful!');
       setError('');
 
-      // Redirect to the main page after a short delay
+      // Redirect to /main
       setTimeout(() => {
         navigate('/main');
-      }, 2000);
+      }, 1000);
 
     } catch (err) {
       setError(err.response?.data?.message || 'Login failed');
@@ -59,7 +62,7 @@ const Login = () => {
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full border border-gray-300 rounded-lg px-3 py-2"
               disabled={loading}
               required
             />
@@ -70,7 +73,7 @@ const Login = () => {
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full border border-gray-300 rounded-lg px-3 py-2"
               disabled={loading}
               required
             />
@@ -83,14 +86,7 @@ const Login = () => {
             }`}
             disabled={loading}
           >
-            {loading ? (
-              <div className="flex items-center justify-center">
-                <div className="h-5 w-5 border-2 border-white border-t-transparent rounded-full animate-spin mr-2" />
-                Logging in...
-              </div>
-            ) : (
-              'Login'
-            )}
+            {loading ? 'Logging in...' : 'Login'}
           </button>
         </form>
 
