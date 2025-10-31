@@ -4,11 +4,21 @@ const cors     = require('cors');
 const http     = require('http');
 const { Server } = require('socket.io');
 const connectDB = require('./config/db');
+const { protect } = require('./middleware/authMiddleware');
+
+
+
+
+
+
+
+
+
 
 // Routes
-const authRoutes    = require('./routes/authRoutes');
+const authRoutes = require('./routes/authRoutes');
 const messageRoutes = require('./routes/messageRoutes');
-const userRoutes    = require('./routes/userRoutes');
+const userRoutes = require('./routes/userRoutes');
 
 // Socket handler
 const socketHandler = require('./sockets/socketHandler');
@@ -28,9 +38,11 @@ app.use(cors({ origin: allowedOrigins, credentials: true }));
 app.use(express.json());
 
 // 3. REST API routes
-app.use('/api/auth',     authRoutes);
+app.use('/api/auth', authRoutes);
 app.use('/api/messages', messageRoutes);
-app.use('/api/users',    userRoutes);
+app.use('/api/users', userRoutes);
+
+
 
 // 4. Create HTTP server + Socket.IO
 const server = http.createServer(app);

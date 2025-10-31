@@ -1,30 +1,39 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { IoCheckmark, IoCheckmarkDone, IoCheckmarkDoneSharp } from 'react-icons/io5';
-import { IoIosSend } from 'react-icons/io';
-import { BsEmojiSmile } from 'react-icons/bs';
-import { HiOutlinePhotograph } from 'react-icons/hi';
-import { SlCallEnd, SlCamrecorder } from 'react-icons/sl';
-import axios from 'axios';
-import socket from '../../utils/socket';
+import React, { useState, useEffect, useRef } from "react";
+import {
+  IoCheckmark,
+  IoCheckmarkDone,
+  IoCheckmarkDoneSharp,
+} from "react-icons/io5";
+import { IoIosSend } from "react-icons/io";
+import { BsEmojiSmile } from "react-icons/bs";
+import { HiOutlinePhotograph } from "react-icons/hi";
+import { SlCallEnd, SlCamrecorder } from "react-icons/sl";
+import axios from "axios";
+import socket from "../../utils/socket";
 
 function Details({ user }) {
-  const [message, setMessage] = useState('');
+  const [message, setMessage] = useState("");
   const [messages, setMessages] = useState([]);
   const scrollRef = useRef(null);
 
-  const currentUser = JSON.parse(localStorage.getItem('user'));
+  const currentUser = JSON.parse(localStorage.getItem("user"));
   const currentUserId = currentUser?._id;
 
+  // Join socket room for current user every time user changes
   useEffect(() => {
     if (currentUserId) {
-      socket.emit('join', currentUserId); // Rejoin room on refresh
+      socket.emit("join", currentUserId);
     }
+    return () => {
+      socket.emit("leave", currentUserId);
+    };
   }, [currentUserId]);
 
+  // Fetch messages when chat partner (user) changes
   useEffect(() => {
     if (!user?._id) return;
 
-    socket.emit('join', currentUserId);
+    socket.emit("join", user._id);
 
     (async () => {
       const { data } = await axios.get(
@@ -32,98 +41,128 @@ function Details({ user }) {
       );
       setMessages(data);
     })();
-  }, [user]);
+    // On chat open, mark unread as read
+    socket.emit("messageRead", {
+      chatWith: user._id,
+      readerId: currentUserId,
+    });
+  }, [user, currentUserId]);
 
-  // ✅ ONLY use socket to send message
+  // Send message via socket
   const handleSend = () => {
     if (!message.trim()) return;
-    const payload = { senderId: currentUserId, receiverId: user._id, message };
-    socket.emit('send_message', payload);
-    setMessage('');
+    const msg = {
+      senderId: currentUserId,
+      receiverId: user._id,
+      message,
+      timestamp: Date.now(),
+    };
+    // Optimistically add to UI
+    setMessages((prev) => [...prev, { ...msg, status: "sent", _id: Date.now().toString() }]);
+    socket.emit("sendMessage", msg);
+    setMessage("");
   };
 
-  // 👂 receive messages (both sender and receiver)
+  // Listen for receiveMessage (real-time)
   useEffect(() => {
     const recv = (data) => {
       setMessages((prev) => [...prev, data]);
-
+      // On incoming, auto-deliver/read
       if (data.receiverId === currentUserId) {
-        socket.emit('message_delivered', {
+        socket.emit("messageDelivered", {
           messageId: data._id,
           senderId: data.senderId,
         });
-
         setTimeout(() => {
-          socket.emit('message_read', {
+          socket.emit("messageRead", {
             messageId: data._id,
             senderId: data.senderId,
           });
-        }, 300);
+        }, 500);
       }
     };
+    socket.on("receiveMessage", recv);
+    return () => socket.off("receiveMessage", recv);
+  }, [user, currentUserId]);
 
-    socket.on('receive_message', recv);
-    return () => socket.off('receive_message', recv);
-  }, [user]);
-
-  // ⏫ update status
+  // Listen for messageDelivered, messageRead
   useEffect(() => {
-    const upd = ({ messageId, status }) => {
+    const delivered = ({ messageId }) => {
       setMessages((prev) =>
-        prev.map((msg) => (msg._id === messageId ? { ...msg, status } : msg))
+        prev.map((msg) =>
+          msg._id === messageId ? { ...msg, status: "delivered" } : msg
+        )
       );
     };
-
-    socket.on('update_status', upd);
-    return () => socket.off('update_status', upd);
+    const read = ({ messageId }) => {
+      setMessages((prev) =>
+        prev.map((msg) =>
+          msg._id === messageId ? { ...msg, status: "read" } : msg
+        )
+      );
+    };
+    socket.on("messageDelivered", delivered);
+    socket.on("messageRead", read);
+    return () => {
+      socket.off("messageDelivered", delivered);
+      socket.off("messageRead", read);
+    };
   }, []);
 
+  // Scroll chat to latest message
   useEffect(() => {
-    scrollRef.current?.scrollIntoView({ behavior: 'smooth' });
+    scrollRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
-  // 🟢 tick icon
+  // Tick icon for status
   const tick = (status) =>
-    status === 'sent' ? (
-      <IoCheckmark size={14} className="ml-1 text-gray-500 inline" />
-    ) : status === 'delivered' ? (
-      <IoCheckmarkDone size={14} className="ml-1 text-gray-500 inline" />
-    ) : status === 'read' ? (
-      <IoCheckmarkDoneSharp size={14} className="ml-1 text-blue-600 inline" />
+    status === "sent" ? (
+      <IoCheckmark size={15} className="ml-1 text-gray-400 inline" />
+    ) : status === "delivered" ? (
+      <IoCheckmarkDone size={15} className="ml-1 text-gray-500 inline" />
+    ) : status === "read" ? (
+      <IoCheckmarkDoneSharp size={15} className="ml-1 text-blue-400 inline" />
     ) : null;
 
   return (
-    <div className="w-[70%] h-[480px] border-x-2">
+    <div className="w-[70%] h-[480px] border-x-2 bg-white shadow-lg rounded-xl flex flex-col">
       {/* Header */}
-      <div className="flex justify-between items-center border-b p-3">
-        <div className="flex items-center gap-3">
+      <div className="flex justify-between items-center border-b p-4 bg-blue-100 rounded-t-xl">
+        <div className="flex items-center gap-4">
           <img
-            src={user.img || 'https://cdn-icons-png.flaticon.com/512/3177/3177440.png'}
+            src={user.img || "https://cdn-icons-png.flaticon.com/512/3177/3177440.png"}
             alt={user.name}
-            className="h-10 w-10 rounded-full object-cover"
+            className="h-12 w-12 rounded-full object-cover border"
           />
           <div>
-            <p className="font-semibold">{user.name}</p>
+            <p className="font-semibold text-lg">{user.name}</p>
             <p className="text-xs text-gray-500">Active recently</p>
           </div>
         </div>
-        <div className="flex gap-4 text-xl">
-          <SlCallEnd /> <SlCamrecorder />
+        <div className="flex gap-3 text-xl text-blue-400">
+          <SlCallEnd className="hover:text-red-400 cursor-pointer" />
+          <SlCamrecorder className="hover:text-green-400 cursor-pointer" />
         </div>
       </div>
 
       {/* Chat */}
-      <div className="p-4 h-[320px] overflow-y-auto">
+      <div className="p-5 h-[320px] overflow-y-auto flex flex-col gap-2 bg-gray-50">
         {messages.map((msg) => (
           <div
             key={msg._id}
-            className={`mb-2 p-2 rounded-md max-w-[70%] ${
-              msg.senderId === currentUserId ? 'bg-blue-200 ml-auto' : 'bg-gray-200'
+            className={`p-3 rounded-lg shadow-sm max-w-[70%] ${
+              msg.senderId === currentUserId
+                ? "bg-blue-200 ml-auto"
+                : "bg-gray-200"
             }`}
           >
-            <p className="text-sm">{msg.message}</p>
-            <p className="text-xs text-right text-gray-600 flex items-center justify-end gap-1">
-              {new Date(msg.timestamp || msg.createdAt).toLocaleTimeString()}
+            <p className="text-base">{msg.message}</p>
+            <p className="text-[11px] text-right text-gray-500 flex items-center justify-end gap-1 mt-1">
+              {new Date(msg.timestamp || msg.createdAt).toLocaleTimeString([], {
+                hour: "2-digit",
+                minute: "2-digit",
+                hour12: true,
+              })}
               {msg.senderId === currentUserId && tick(msg.status)}
             </p>
           </div>
@@ -132,24 +171,22 @@ function Details({ user }) {
       </div>
 
       {/* Input */}
-      <div className="flex border m-3 rounded">
+      <div className="flex border m-4 rounded-xl bg-white px-3 py-2 shadow-sm items-center gap-2">
         <input
-          className="flex-grow px-3 py-2 outline-none"
-          placeholder="Enter message"
+          className="flex-grow px-3 py-2 rounded-xl border outline-none bg-gray-100"
+          placeholder="Type a message..."
           value={message}
           onChange={(e) => setMessage(e.target.value)}
-          onKeyDown={(e) => e.key === 'Enter' && handleSend()}
+          onKeyDown={(e) => e.key === "Enter" && handleSend()}
         />
-        <div className="flex items-center gap-3 px-3">
-          {message && (
-            <IoIosSend
-              className="text-2xl text-blue-500 cursor-pointer"
-              onClick={handleSend}
-            />
-          )}
-          <BsEmojiSmile className="text-xl opacity-60" />
-          <HiOutlinePhotograph className="text-xl opacity-60" />
-        </div>
+        {message && (
+          <IoIosSend
+            className="text-2xl text-blue-500 cursor-pointer"
+            onClick={handleSend}
+          />
+        )}
+        <BsEmojiSmile className="text-xl opacity-70 cursor-pointer mx-1" />
+        <HiOutlinePhotograph className="text-xl opacity-70 cursor-pointer" />
       </div>
     </div>
   );

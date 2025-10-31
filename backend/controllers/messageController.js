@@ -1,27 +1,27 @@
 const Message = require('../models/message');
+const User = require('../models/user');
 
-// POST /api/messages
-exports.sendMessage = async (req, res) => {
+// ✅ Get recent contacts for a user
+exports.getRecentContacts = async (req, res) => {
+  const userId = req.user._id;
   try {
-    const newMsg = await Message.create(req.body);
-    res.status(201).json(newMsg);
-  } catch (err) {
-    res.status(500).json({ message: 'Send failed', error: err.message });
-  }
-};
+    const messages = await Message.find({
+      $or: [{ senderId: userId }, { receiverId: userId }],
+    });
 
-// GET /api/messages/:senderId/:receiverId
-exports.getMessages = async (req, res) => {
-  const { senderId, receiverId } = req.params;
-  try {
-    const msgs = await Message.find({
-      $or: [
-        { senderId, receiverId },
-        { senderId: receiverId, receiverId: senderId },
-      ],
-    }).sort({ createdAt: 1 });
-    res.json(msgs);
-  } catch (err) {
-    res.status(500).json({ message: 'Fetch failed', error: err.message });
+    const contactIds = [
+      ...new Set(
+        messages.map((msg) =>
+          msg.senderId.toString() === userId.toString()
+            ? msg.receiverId.toString()
+            : msg.senderId.toString()
+        )
+      ),
+    ];
+
+    const contacts = await User.find({ _id: { $in: contactIds } }).select('-password');
+    res.status(200).json(contacts);
+  } catch (error) {
+    res.status(500).json({ message: 'Failed to load contacts' });
   }
 };
