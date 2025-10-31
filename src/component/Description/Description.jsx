@@ -2,12 +2,10 @@ import React from 'react';
 import defaultImg from '../img/img.jpg';
 
 function Description({ user }) {
-  // Use fallback values if 'user' is not defined
-  const { name = "Aarav Singh", img = defaultImg, activeStatus = "20m" } = user || {};
+  const { name = "User", img = defaultImg, activeStatus = "unknown" } = user || {};
 
   return (
-    <div className=" w-[30%] border-2  bg-white">
-      {/* User Photo */}
+    <div className="w-[30%] border-2 bg-white">
       <div className="photo flex justify-center mt-5">
         <img
           src={img}
@@ -15,14 +13,10 @@ function Description({ user }) {
           className="h-24 w-24 rounded-full transition-transform hover:scale-105"
         />
       </div>
-
-      {/* User Details */}
       <div className="name flex flex-col items-center mt-5">
         <p className="font-semibold">{name}</p>
         <p className="opacity-50 text-sm">Active {activeStatus} ago</p>
       </div>
-
-      {/* Edit Profile Button */}
       <div className="edit flex justify-center mt-10">
         <button
           type="button"
@@ -32,8 +26,6 @@ function Description({ user }) {
           Edit Profile
         </button>
       </div>
-      
-      {/* Additional features can be added here */}
       <div className="features"></div>
     </div>
   );

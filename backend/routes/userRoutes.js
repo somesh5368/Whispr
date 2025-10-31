@@ -1,16 +1,12 @@
-// routes/userRoutes.js
 const express = require('express');
 const router = express.Router();
-const User = require('../models/User');
+const authMiddleware = require('../middleware/authMiddleware');
+const { searchUsers, getAllUsers } = require('../controllers/authController');
 
-// GET /api/users/:userId => returns all users except current user
-router.get('/:userId', async (req, res) => {
-  try {
-    const users = await User.find({ _id: { $ne: req.params.userId } }).select('-password');
-    res.json(users);
-  } catch (err) {
-    res.status(500).json({ message: 'Failed to fetch users' });
-  }
-});
+// 🔹 Search users by name/email
+router.get('/search', authMiddleware, searchUsers);
+
+// 🔹 Get all users except current user (optional)
+router.get('/:userId', authMiddleware, getAllUsers);
 
 module.exports = router;
