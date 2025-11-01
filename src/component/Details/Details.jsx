@@ -36,11 +36,20 @@ function Details({ user }) {
     socket.emit("join", user._id);
 
     (async () => {
-      const { data } = await axios.get(
-        `http://localhost:5000/api/messages/${currentUserId}/${user._id}`
-      );
-      setMessages(data);
+      try {
+        const { data } = await axios.get(
+          `http://localhost:5000/api/messages/${currentUserId}/${user._id}`,
+          {
+            headers: { Authorization: `Bearer ${currentUser.token}` }
+          }
+        );
+        setMessages(data);
+      } catch (err) {
+        setMessages([]);
+        console.error("Failed to fetch messages", err);
+      }
     })();
+
     // On chat open, mark unread as read
     socket.emit("messageRead", {
       chatWith: user._id,
@@ -48,7 +57,7 @@ function Details({ user }) {
     });
   }, [user, currentUserId]);
 
-  // Send message via socket
+  // Send message via socket (DB handled by socket backend)
   const handleSend = () => {
     if (!message.trim()) return;
     const msg = {
@@ -57,17 +66,20 @@ function Details({ user }) {
       message,
       timestamp: Date.now(),
     };
-    // Optimistically add to UI
-    setMessages((prev) => [...prev, { ...msg, status: "sent", _id: Date.now().toString() }]);
-    socket.emit("sendMessage", msg);
+    socket.emit("sendMessage", msg);  // event name matches backend!
     setMessage("");
   };
 
-  // Listen for receiveMessage (real-time)
+  // Listen for receiveMessage (real-time, only backend-saved message added)
   useEffect(() => {
     const recv = (data) => {
-      setMessages((prev) => [...prev, data]);
-      // On incoming, auto-deliver/read
+      setMessages((prev) => {
+        // Avoid duplicate (_id from MongoDB!)
+        if (prev.some(m => m._id === data._id)) return prev;
+        return [...prev, data];
+      });
+
+      // Status management
       if (data.receiverId === currentUserId) {
         socket.emit("messageDelivered", {
           messageId: data._id,
@@ -85,7 +97,7 @@ function Details({ user }) {
     return () => socket.off("receiveMessage", recv);
   }, [user, currentUserId]);
 
-  // Listen for messageDelivered, messageRead
+  // Listen for messageDelivered, messageRead status ticks
   useEffect(() => {
     const delivered = ({ messageId }) => {
       setMessages((prev) =>

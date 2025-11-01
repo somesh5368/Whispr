@@ -18,22 +18,19 @@ const Register = () => {
     try {
       const response = await axios.post(
         "http://localhost:5000/api/auth/register",
-        {
-          name,
-          email,
-          password,
-        }
+        { name, email, password }
       );
 
-      // Save user data in localStorage
-      localStorage.setItem("token", response.data.token);
-      localStorage.setItem("user", JSON.stringify(response.data.user)); // Save user info
+      // PATCHED: Now we always save token inside user object
+      const { user, token } = response.data;
+      localStorage.setItem("user", JSON.stringify({ ...user, token }));
+      // Optional: localStorage.setItem("token", token);
 
       setSuccess("🎉 Registration successful!");
       setError("");
       setTimeout(() => {
-        navigate("/main"); // Registration ke baad main page par redirect karega
-      }, 2000);
+        navigate("/main");
+      }, 1200);
     } catch (err) {
       setError(err.response?.data?.message || "❌ Something went wrong");
       setSuccess("");
@@ -59,7 +56,6 @@ const Register = () => {
             placeholder="Enter your name"
           />
         </div>
-
         <div className="text-left">
           <label className="font-semibold text-gray-700">Email</label>
           <input
@@ -71,7 +67,6 @@ const Register = () => {
             placeholder="Enter your email"
           />
         </div>
-
         <div className="text-left">
           <label className="font-semibold text-gray-700">Password</label>
           <input
@@ -83,7 +78,6 @@ const Register = () => {
             placeholder="Enter a password"
           />
         </div>
-
         <button
           type="submit"
           className="bg-blue-500 text-white py-3 px-6 font-semibold rounded-lg cursor-pointer transition duration-300 ease-in-out hover:bg-blue-700 disabled:opacity-70 disabled:cursor-not-allowed flex items-center justify-center"
