@@ -6,6 +6,7 @@ const messageSchema = new mongoose.Schema(
     receiverId:{ type: String, required: true },
     message:   { type: String, required: true },
     status:    { type: String, enum: ['sent', 'delivered', 'read'], default: 'sent' },
+    image:     { type: String }, // If you support photo messages, optional
   },
   { timestamps: true }
 );
