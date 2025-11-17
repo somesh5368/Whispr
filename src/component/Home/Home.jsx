@@ -4,7 +4,6 @@ import Login from '../Login/Login.jsx';
 import Header from '../Header/Header.jsx';
 import Chats from '../Chats/Chats';
 import Details from '../Details/Details';
-import Description from '../Description/Description';
 import bgImg from '../img/bgImg.jpg';
 import chatImg from '../img/newchat.jpg';
 import Register from '../Register/Register.jsx';
@@ -28,13 +27,10 @@ function Home() {
           element={
             <div className="mx-auto h-[95vh] w-[160vh] shadow-zinc-900 bg-white text-black rounded-md shadow-lg">
               <Header />
-              <div className="flex ">
-                <Chats onSelectContact={(contact) => setSelectedContact(contact)} />
+              <div className="flex">
+                <Chats onSelectContact={setSelectedContact} />
                 {selectedContact ? (
-                  <div className="flex w-full ">
-                    <Details user={selectedContact} />
-                    <Description user={selectedContact} />
-                  </div>
+                  <Details user={selectedContact} />
                 ) : (
                   <div className="flex items-center justify-center w-full h-full">
                     <img
