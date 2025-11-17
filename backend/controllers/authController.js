@@ -2,10 +2,9 @@ const User = require('../models/user');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 
-// Token utility
 const generateToken = (id) => jwt.sign({ id }, process.env.JWT_SECRET, { expiresIn: '30d' });
 
-// ✅ Register User
+// Register User
 exports.registerUser = async (req, res) => {
   try {
     const { name, email, password } = req.body;
@@ -21,15 +20,23 @@ exports.registerUser = async (req, res) => {
 
     const token = generateToken(user._id);
     res.status(201).json({
-      user: { _id: user._id, name: user.name, email: user.email },
+      user: { 
+        _id: user._id, 
+        name: user.name, 
+        email: user.email, 
+        img: user.img, 
+        bio: user.bio, 
+        phone: user.phone 
+      }, 
       token
     });
   } catch (err) {
+    console.error('Registration error:', err);
     res.status(500).json({ message: 'Registration failed', error: err.message });
   }
 };
 
-// ✅ Login User
+// Login User
 exports.loginUser = async (req, res) => {
   try {
     const { email, password } = req.body;
@@ -41,22 +48,56 @@ exports.loginUser = async (req, res) => {
       return res.status(401).json({ message: "Invalid credentials" });
 
     const token = generateToken(user._id);
-    res.json({ user: { _id: user._id, name: user.name, email: user.email }, token });
+    res.json({ 
+      user: { 
+        _id: user._id, 
+        name: user.name, 
+        email: user.email, 
+        img: user.img, 
+        bio: user.bio, 
+        phone: user.phone 
+      }, 
+      token 
+    });
   } catch (err) {
+    console.error('Login error:', err);
     res.status(500).json({ message: 'Login failed', error: err.message });
   }
 };
 
-// ✅ Get Logged-in User
+// Get current logged-in user profile
 exports.getMe = async (req, res) => {
   try {
+    console.log('REQ.USER at getMe:', req.user);
+    if (!req.user) {
+      return res.status(401).json({ message: "User not found" });
+    }
     res.json(req.user);
   } catch (err) {
-    res.status(500).json({ message: "GetMe failed" });
+    console.error('GetMe error:', err);
+    res.status(500).json({ message: "GetMe failed", error: err.message });
   }
 };
 
-// 🔹 Search users
+// Update current logged-in user profile
+exports.updateProfile = async (req, res) => {
+  try {
+    const { name, img, bio, phone } = req.body;
+    const user = await User.findById(req.user._id);
+    if (!user) return res.status(401).json({ message: "User not found" });
+    if (name)  user.name = name;
+    if (img)   user.img  = img;
+    if (bio)   user.bio  = bio;
+    if (phone) user.phone= phone;
+    await user.save();
+    res.json(user);
+  } catch (err) {
+    console.error('Profile update error:', err);
+    res.status(500).json({ message: "Profile update failed", error: err.message });
+  }
+};
+
+// Search users
 exports.searchUsers = async (req, res) => {
   const searchQuery = req.query.q;
   if (!searchQuery)
@@ -71,16 +112,18 @@ exports.searchUsers = async (req, res) => {
     }).select('-password');
     res.status(200).json(users);
   } catch (err) {
+    console.error('Search error:', err);
     res.status(500).json({ message: 'Search failed', error: err.message });
   }
 };
 
-// 🔹 Get all users except current user
+// Get all users except current user
 exports.getAllUsers = async (req, res) => {
   try {
     const users = await User.find({ _id: { $ne: req.params.userId } }).select('-password');
     res.json(users);
   } catch (err) {
+    console.error('GetAllUsers error:', err);
     res.status(500).json({ message: 'Failed to fetch users' });
   }
 };
