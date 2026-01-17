@@ -223,7 +223,7 @@ style: UI/formatting
 📞 Contact & Support
 Somesh Pandey
 
-📧 Email: sp5368@gmail.com
+📧 Email: spandey5368@gmail.com
 
 💼 GitHub: @somesh5368
 
