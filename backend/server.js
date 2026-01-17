@@ -43,6 +43,15 @@ app.use("/api/auth", authRoutes);
 app.use("/api/messages", messageRoutes);
 app.use("/api/users", userRoutes);
 
+// Health check / root route
+app.get("/", (req, res) => {
+  res.json({ 
+    message: "🚀 Whispr backend is running!",
+    status: "OK",
+    timestamp: new Date().toISOString()
+  });
+});
+
 // Create HTTP server and bind Socket.IO
 const server = http.createServer(app);
 
