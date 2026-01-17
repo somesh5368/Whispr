@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import axios from 'axios';
-import ChatsIcon from '../ChatsIcon/ChatsIcon';
-import socket from "../../utils/socket";
+import ChatsIcon from '../component/ChatsIcon';
+import socket from '../../src/utils/socket';
 
 function Contact({ onSelectContact }) {
   const [contacts, setContacts] = useState([]);
