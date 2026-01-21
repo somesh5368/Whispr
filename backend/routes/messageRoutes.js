@@ -1,42 +1,55 @@
-// backend/routes/messageRoutes.js
-
 const express = require("express");
 const router = express.Router();
 
 const messageController = require("../controllers/messageController");
 const { protect } = require("../middleware/authMiddleware");
-const { upload } = require("../config/cloudinary");
+const upload = require("../middleware/uploadProfile");
 
-// Send a message via REST (for starting chat / tests)
-router.post("/", protect, messageController.sendMessage);
+// ============================================
+// Message Routes
+// ============================================
 
-// Get recent contacts for sidebar
+// Get recent contacts for sidebar (Protected)
 router.get(
-  "/recent/contacts",
+  "/recent-contacts",
   protect,
   messageController.getRecentContacts
 );
 
-// Mark all messages from a contact as read
-router.post(
-  "/mark-read/:contactId",
-  protect,
-  messageController.markChatRead
-);
-
-// Get chat messages between two users
+// Get chat messages between two users (Protected)
 router.get(
-  "/:senderId/:receiverId",
+  "/:userId",
   protect,
   messageController.getMessages
 );
 
-// Upload chat image (multer in memory -> Cloudinary)
+// Send a message via REST (Protected)
+router.post(
+  "/send",
+  protect,
+  messageController.sendMessage
+);
+
+// Mark all messages from a contact as read (Protected)
+router.post(
+  "/mark-read/:userId",
+  protect,
+  messageController.markAsRead
+);
+
+// Upload chat image - Cloudinary (Protected)
 router.post(
   "/upload-image",
   protect,
   upload.single("image"),
   messageController.uploadMessageImage
+);
+
+// Delete a message (Protected)
+router.delete(
+  "/:messageId",
+  protect,
+  messageController.deleteMessage
 );
 
 module.exports = router;

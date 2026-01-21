@@ -1,4 +1,3 @@
-// backend/routes/authRoutes.js
 const express = require("express");
 const router = express.Router();
 
@@ -14,30 +13,34 @@ const {
 const { protect } = require("../middleware/authMiddleware");
 const upload = require("../middleware/uploadProfile");
 
-// Register
+// ============================================
+// Authentication Routes
+// ============================================
+
+// Register new user
 router.post("/register", registerUser);
 
-// Login
+// Login user
 router.post("/login", loginUser);
 
-// Current logged-in user
+// Get current logged-in user profile (Protected)
 router.get("/me", protect, getMe);
 
-// Search users
-router.get("/search", protect, searchUsers);
-
-// Get all users except current
-router.get("/all/:userId", protect, getAllUsers);
-
-// Update profile fields
+// Update profile fields (Protected)
 router.put("/profile", protect, updateProfile);
 
-// Update profile photo via file upload
+// Update profile photo via file upload (Protected)
 router.put(
   "/profile/photo",
   protect,
   upload.single("avatar"),
   updateProfilePhoto
 );
+
+// Search users (Protected)
+router.get("/search", protect, searchUsers);
+
+// Get all users except current (Protected)
+router.get("/all/:userId", protect, getAllUsers);
 
 module.exports = router;

@@ -1,104 +1,177 @@
-// backend/sockets/socketHandler.js
-const Message = require("../models/message");
+const Message = require('../models/message');
 
 const onlineUsers = new Set();
+const userSocketMap = new Map();
 
 const socketHandler = (io) => {
-  io.on("connection", (socket) => {
-    console.log("🔌 New client:", socket.id);
+  io.on('connection', (socket) => {
+    console.log('✅ New client connected:', socket.id);
 
-    // Join room
-    socket.on("join", (userId) => {
-      if (!userId) return;
-      socket.join(userId);
-      onlineUsers.add(userId);
-      io.emit("userOnline", userId);
+    // ============================================
+    // Join User Room
+    // ============================================
+    socket.on('join', (userId) => {
+      if (!userId) {
+        console.warn('❌ Join event: userId missing');
+        return;
+      }
+
+      const userIdStr = userId.toString();
+      socket.join(userIdStr);
+      userSocketMap.set(userIdStr, socket.id);
+      onlineUsers.add(userIdStr);
+
+      console.log(`👤 User ${userIdStr} joined. Online users: ${onlineUsers.size}`);
+
+      // Broadcast user online status
+      io.emit('userOnline', userIdStr);
     });
 
-    socket.on("leave", (userId) => {
+    // ============================================
+    // Leave User Room
+    // ============================================
+    socket.on('leave', (userId) => {
       if (!userId) return;
-      socket.leave(userId);
-      onlineUsers.delete(userId);
-      io.emit("userOffline", userId);
+
+      const userIdStr = userId.toString();
+      socket.leave(userIdStr);
+      userSocketMap.delete(userIdStr);
+      onlineUsers.delete(userIdStr);
+
+      console.log(`👋 User ${userIdStr} left. Online users: ${onlineUsers.size}`);
+      io.emit('userOffline', userIdStr);
     });
 
-    // Real-time message handler
-    socket.on("sendMessage", async (data) => {
+    // ============================================
+    // Send Message
+    // ============================================
+    socket.on('sendMessage', async (data) => {
       try {
-        const {
-          senderId,
-          receiverId,
-          message,
-          image,
-          timestamp,
-          clientId,
-        } = data;
+        const { senderId, receiverId, message, image, timestamp, clientId } = data;
 
-        if (!senderId || !receiverId) return;
+        if (!senderId || !receiverId) {
+          console.warn('❌ sendMessage: Missing senderId or receiverId');
+          return;
+        }
 
+        // Create message in DB
         const newMsg = await Message.create({
-          senderId,
-          receiverId,
+          sender: senderId,
+          receiver: receiverId,
           message,
-          image,
-          status: "sent",
+          image: image || null,
+          status: 'sent',
           timestamp: timestamp || Date.now(),
           clientId,
         });
 
-        // Send to both users (rooms are userId)
-        io.to(receiverId).emit("receiveMessage", newMsg);
-        io.to(senderId).emit("receiveMessage", newMsg);
+        // Populate sender info
+        await newMsg.populate('sender', 'name email avatar');
+
+        // Send to both users
+        const receiverIdStr = receiverId.toString();
+        const senderIdStr = senderId.toString();
+
+        io.to(receiverIdStr).emit('receiveMessage', {
+          ...newMsg.toObject(),
+          clientId,
+        });
+
+        io.to(senderIdStr).emit('receiveMessage', newMsg.toObject());
 
         // Tell both users to refresh recent contacts
-        io.to(receiverId).emit("updateRecentContacts");
-        io.to(senderId).emit("updateRecentContacts");
+        io.to(receiverIdStr).emit('updateRecentContacts');
+        io.to(senderIdStr).emit('updateRecentContacts');
+
+        console.log(`📨 Message from ${senderIdStr} to ${receiverIdStr}`);
       } catch (err) {
-        console.error("sendMessage error:", err.message);
+        console.error('❌ sendMessage error:', err.message);
+        socket.emit('error', { message: 'Failed to send message' });
       }
     });
 
-    // Message delivered
-    socket.on("messageDelivered", async ({ messageId, senderId }) => {
+    // ============================================
+    // Message Delivered
+    // ============================================
+    socket.on('messageDelivered', async (data) => {
       try {
-        const msg = await Message.findById(messageId);
-        if (msg && msg.status === "sent") {
-          msg.status = "delivered";
-          await msg.save();
-          io.to(senderId).emit("messageDelivered", messageId);
+        const { messageId, senderId } = data;
+
+        const msg = await Message.findByIdAndUpdate(
+          messageId,
+          { status: 'delivered' },
+          { new: true }
+        );
+
+        if (msg) {
+          const senderIdStr = senderId.toString();
+          io.to(senderIdStr).emit('messageDelivered', {
+            messageId,
+            status: 'delivered',
+          });
+          console.log(`✅ Message ${messageId} delivered`);
         }
       } catch (err) {
-        console.error("messageDelivered error:", err.message);
+        console.error('❌ messageDelivered error:', err.message);
       }
     });
 
-    // Message read
-    socket.on("messageRead", async ({ messageId, senderId }) => {
+    // ============================================
+    // Message Read
+    // ============================================
+    socket.on('messageRead', async (data) => {
       try {
-        const msg = await Message.findById(messageId);
-        if (msg && msg.status !== "read") {
-          msg.status = "read";
-          await msg.save();
-          io.to(senderId).emit("messageRead", messageId);
+        const { messageId, senderId } = data;
+
+        const msg = await Message.findByIdAndUpdate(
+          messageId,
+          { status: 'read' },
+          { new: true }
+        );
+
+        if (msg) {
+          const senderIdStr = senderId.toString();
+          io.to(senderIdStr).emit('messageRead', {
+            messageId,
+            status: 'read',
+          });
+          console.log(`👁️ Message ${messageId} read`);
         }
       } catch (err) {
-        console.error("messageRead error:", err.message);
+        console.error('❌ messageRead error:', err.message);
       }
     });
 
-    // Typing indicator
-    socket.on("typing", ({ to, from }) => {
+    // ============================================
+    // Typing Indicator
+    // ============================================
+    socket.on('typing', (data) => {
+      const { to, from, isTyping } = data;
+
       if (!to || !from) return;
-      io.to(to).emit("typing", { from });
+
+      io.to(to.toString()).emit('userTyping', {
+        from: from.toString(),
+        isTyping,
+      });
     });
 
-    socket.on("stopTyping", ({ to, from }) => {
-      if (!to || !from) return;
-      io.to(to).emit("stopTyping", { from });
-    });
+    // ============================================
+    // Disconnect
+    // ============================================
+    socket.on('disconnect', () => {
+      console.log('❌ Client disconnected:', socket.id);
 
-    socket.on("disconnect", () => {
-      console.log("❌ Client disconnected:", socket.id);
+      // Find and remove user from online users
+      for (const [userId, socketId] of userSocketMap.entries()) {
+        if (socketId === socket.id) {
+          onlineUsers.delete(userId);
+          userSocketMap.delete(userId);
+          io.emit('userOffline', userId);
+          console.log(`👋 User ${userId} went offline`);
+          break;
+        }
+      }
     });
   });
 };

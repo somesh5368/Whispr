@@ -1,186 +1,326 @@
-// backend/controllers/authController.js
-
 const User = require("../models/user");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
-const { cloudinary } = require("../config/cloudinary");
+const cloudinary = require("../config/cloudinary");
 
-const generateToken = (id) =>
-  jwt.sign({ id }, process.env.JWT_SECRET, { expiresIn: "30d" });
+// ============================================
+// Generate JWT Token
+// ============================================
+const generateToken = (id) => {
+  return jwt.sign({ id }, process.env.JWT_SECRET, {
+    expiresIn: "30d",
+  });
+};
 
-// Register User
+// ============================================
+// POST: Register User
+// ============================================
 exports.registerUser = async (req, res) => {
   try {
     const { name, email, password } = req.body;
-    if (!name || !email || !password)
-      return res.status(400).json({ message: "All fields required" });
 
-    const userExists = await User.findOne({ email });
-    if (userExists)
-      return res.status(400).json({ message: "User already exists" });
+    // Validate input
+    if (!name || !email || !password) {
+      return res.status(400).json({
+        message: "Please provide all required fields",
+      });
+    }
 
-    // ✅ Plain password pass; model hook will hash it
-    const user = await User.create({ name, email, password });
+    // Check if user already exists
+    const userExists = await User.findOne({
+      email: email.toLowerCase().trim(),
+    });
 
+    if (userExists) {
+      return res.status(400).json({
+        message: "User already exists with that email",
+      });
+    }
+
+    // Create user (password hashing handled in model pre-save hook)
+    const user = await User.create({
+      name: name.trim(),
+      email: email.toLowerCase().trim(),
+      password,
+    });
+
+    // Generate token
     const token = generateToken(user._id);
 
     res.status(201).json({
+      success: true,
       user: {
-        _id: user._id,
+        id: user._id,
         name: user.name,
         email: user.email,
-        img: user.img,
+        avatar: user.avatar,
         bio: user.bio,
         phone: user.phone,
       },
       token,
     });
-  } catch (err) {
-    console.error("Registration error:", err);
-    res
-      .status(500)
-      .json({ message: "Registration failed", error: err.message });
+  } catch (error) {
+    console.error("❌ Register error:", error);
+    res.status(500).json({
+      message: "Registration failed",
+      error: error.message,
+    });
   }
 };
 
-// Login User
+// ============================================
+// POST: Login User
+// ============================================
 exports.loginUser = async (req, res) => {
   try {
     const { email, password } = req.body;
 
-    if (!email || !password)
-      return res.status(400).json({ message: "Email or password missing" });
+    // Validate input
+    if (!email || !password) {
+      return res.status(400).json({
+        message: "Please provide email and password",
+      });
+    }
 
-    const user = await User.findOne({ email: email.toLowerCase().trim() });
+    // Check for user
+    const user = await User.findOne({
+      email: email.toLowerCase().trim(),
+    });
 
-    if (!user || !(await bcrypt.compare(password, user.password)))
-      return res.status(401).json({ message: "Invalid credentials" });
+    if (!user) {
+      return res.status(401).json({
+        message: "Invalid credentials",
+      });
+    }
 
+    // Check password
+    const isPasswordValid = await user.matchPassword(password);
+
+    if (!isPasswordValid) {
+      return res.status(401).json({
+        message: "Invalid credentials",
+      });
+    }
+
+    // Generate token
     const token = generateToken(user._id);
 
     res.json({
+      success: true,
       user: {
-        _id: user._id,
+        id: user._id,
         name: user.name,
         email: user.email,
-        img: user.img,
+        avatar: user.avatar,
         bio: user.bio,
         phone: user.phone,
       },
       token,
     });
-  } catch (err) {
-    console.error("Login error:", err);
-    res.status(500).json({ message: "Login failed", error: err.message });
-  }
-};
-
-// Get current logged-in user profile
-exports.getMe = async (req, res) => {
-  try {
-    console.log("REQ.USER at getMe:", req.user);
-    if (!req.user) {
-      return res.status(401).json({ message: "User not found" });
-    }
-    res.json(req.user);
-  } catch (err) {
-    console.error("GetMe error:", err);
-    res.status(500).json({ message: "GetMe failed", error: err.message });
-  }
-};
-
-// Update current logged-in user profile
-exports.updateProfile = async (req, res) => {
-  try {
-    const { name, img, bio, phone } = req.body;
-    const user = await User.findById(req.user._id);
-    if (!user) return res.status(401).json({ message: "User not found" });
-
-    if (name) user.name = name;
-    if (img) user.img = img;
-    if (bio) user.bio = bio;
-    if (phone) user.phone = phone;
-
-    await user.save();
-    res.json(user);
-  } catch (err) {
-    console.error("Profile update error:", err);
-    res
-      .status(500)
-      .json({ message: "Profile update failed", error: err.message });
-  }
-};
-
-// Update profile photo using Cloudinary
-exports.updateProfilePhoto = async (req, res) => {
-  try {
-    if (!req.file) {
-      return res.status(400).json({ message: "No file provided" });
-    }
-
-    const uploadStream = cloudinary.uploader.upload_stream(
-      {
-        folder: "whispr/avatars",
-        transformation: [{ width: 300, height: 300, crop: "fill" }],
-      },
-      async (error, result) => {
-        if (error) {
-          console.error("Cloudinary error:", error);
-          return res.status(500).json({ message: "Upload failed" });
-        }
-
-        const user = await User.findByIdAndUpdate(
-          req.user._id,
-          { img: result.secure_url },
-          { new: true }
-        ).select("-password");
-
-        res.json(user);
-      }
-    );
-
-    uploadStream.end(req.file.buffer);
-  } catch (err) {
-    console.error("Profile photo update error:", err);
+  } catch (error) {
+    console.error("❌ Login error:", error);
     res.status(500).json({
-      message: "Profile photo update failed",
-      error: err.message,
+      message: "Login failed",
+      error: error.message,
     });
   }
 };
 
-// Search users
-exports.searchUsers = async (req, res) => {
-  const searchQuery = req.query.q;
-  if (!searchQuery) {
-    return res.status(400).json({ message: "Search query is required" });
-  }
-
+// ============================================
+// GET: Get Current User
+// ============================================
+exports.getMe = async (req, res) => {
   try {
-    const users = await User.find({
-      $or: [
-        { name: { $regex: searchQuery, $options: "i" } },
-        { email: { $regex: searchQuery, $options: "i" } },
-      ],
-    }).select("-password");
+    const user = await User.findById(req.user.id);
 
-    res.status(200).json(users);
-  } catch (err) {
-    console.error("Search error:", err);
-    res.status(500).json({ message: "Search failed", error: err.message });
+    if (!user) {
+      return res.status(404).json({
+        message: "User not found",
+      });
+    }
+
+    res.json({
+      success: true,
+      user: {
+        id: user._id,
+        name: user.name,
+        email: user.email,
+        avatar: user.avatar,
+        bio: user.bio,
+        phone: user.phone,
+      },
+    });
+  } catch (error) {
+    console.error("❌ getMe error:", error);
+    res.status(500).json({
+      message: "Failed to fetch user",
+      error: error.message,
+    });
   }
 };
 
-// Get all users except current
+// ============================================
+// PUT: Update User Profile
+// ============================================
+exports.updateProfile = async (req, res) => {
+  try {
+    const { name, bio, phone } = req.body;
+    const user = await User.findById(req.user.id);
+
+    if (!user) {
+      return res.status(404).json({
+        message: "User not found",
+      });
+    }
+
+    // Update fields if provided
+    if (name) user.name = name.trim();
+    if (bio !== undefined) user.bio = bio;
+    if (phone) user.phone = phone;
+
+    await user.save();
+
+    res.json({
+      success: true,
+      user: {
+        id: user._id,
+        name: user.name,
+        email: user.email,
+        avatar: user.avatar,
+        bio: user.bio,
+        phone: user.phone,
+      },
+    });
+  } catch (error) {
+    console.error("❌ updateProfile error:", error);
+    res.status(500).json({
+      message: "Profile update failed",
+      error: error.message,
+    });
+  }
+};
+
+// ============================================
+// PUT: Update Profile Photo
+// ============================================
+exports.updateProfilePhoto = async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({
+        message: "No file provided",
+      });
+    }
+
+    const user = await User.findById(req.user.id);
+
+    if (!user) {
+      return res.status(404).json({
+        message: "User not found",
+      });
+    }
+
+    // Upload to Cloudinary
+    const uploadStream = cloudinary.uploader.upload_stream(
+      {
+        folder: "whispr/avatars",
+        transformation: [
+          { width: 300, height: 300, crop: "fill" },
+        ],
+      },
+      async (error, result) => {
+        if (error) {
+          console.error("❌ Cloudinary upload error:", error);
+          return res.status(500).json({
+            message: "Upload failed",
+            error: error.message,
+          });
+        }
+
+        // Update user avatar
+        user.avatar = result.secure_url;
+        await user.save();
+
+        res.json({
+          success: true,
+          user: {
+            id: user._id,
+            name: user.name,
+            email: user.email,
+            avatar: user.avatar,
+            bio: user.bio,
+            phone: user.phone,
+          },
+        });
+      }
+    );
+
+    uploadStream.end(req.file.buffer);
+  } catch (error) {
+    console.error("❌ updateProfilePhoto error:", error);
+    res.status(500).json({
+      message: "Profile photo update failed",
+      error: error.message,
+    });
+  }
+};
+
+// ============================================
+// GET: Search Users
+// ============================================
+exports.searchUsers = async (req, res) => {
+  try {
+    const { q } = req.query;
+
+    if (!q) {
+      return res.status(400).json({
+        message: "Search query is required",
+      });
+    }
+
+    const users = await User.find(
+      {
+        $or: [
+          { name: { $regex: q, $options: "i" } },
+          { email: { $regex: q, $options: "i" } },
+        ],
+      },
+      { password: 0 }
+    ).limit(10);
+
+    res.json({
+      success: true,
+      users,
+    });
+  } catch (error) {
+    console.error("❌ searchUsers error:", error);
+    res.status(500).json({
+      message: "Search failed",
+      error: error.message,
+    });
+  }
+};
+
+// ============================================
+// GET: Get All Users
+// ============================================
 exports.getAllUsers = async (req, res) => {
   try {
-    const users = await User.find({
-      _id: { $ne: req.params.userId },
-    }).select("-password");
+    const { userId } = req.params;
 
-    res.json(users);
-  } catch (err) {
-    console.error("GetAllUsers error:", err);
-    res.status(500).json({ message: "Failed to fetch users" });
+    const users = await User.find(
+      { _id: { $ne: userId } },
+      { password: 0 }
+    );
+
+    res.json({
+      success: true,
+      users,
+    });
+  } catch (error) {
+    console.error("❌ getAllUsers error:", error);
+    res.status(500).json({
+      message: "Failed to fetch users",
+      error: error.message,
+    });
   }
 };
