@@ -1,39 +1,37 @@
-// backend/models/message.js
-const mongoose = require("mongoose");
+const mongoose = require('mongoose');
 
 const messageSchema = new mongoose.Schema(
   {
-    senderId: {
+    sender: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: "User",
+      ref: 'User',
       required: true,
     },
-    receiverId: {
+    receiver: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: "User",
+      ref: 'User',
       required: true,
     },
     message: {
       type: String,
       trim: true,
+      default: '',
     },
     image: {
       type: String,
+      default: null,
     },
     status: {
       type: String,
-      enum: ["sent", "delivered", "read"],
-      default: "sent",
+      enum: ['sent', 'delivered', 'read'],
+      default: 'sent',
     },
     clientId: {
-      type: String, // client-side unique id to match optimistic update
-    },
-    timestamp: {
-      type: Date,
-      default: Date.now,
+      type: String,
+      default: null,
     },
   },
   { timestamps: true }
 );
 
-module.exports = mongoose.model("Message", messageSchema);
+module.exports = mongoose.model('Message', messageSchema);

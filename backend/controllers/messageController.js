@@ -1,233 +1,281 @@
-// backend/controllers/messageController.js
-
 const Message = require("../models/message");
 const User = require("../models/user");
-const { io } = require("../server");
-const { cloudinary } = require("../config/cloudinary");
+const cloudinary = require("../config/cloudinary");
 
-// POST /api/messages
-exports.sendMessage = async (req, res) => {
-  try {
-    const newMsg = await Message.create(req.body);
-
-    // Notify both users to refresh recent contacts + deliver
-    if (io && newMsg.senderId && newMsg.receiverId) {
-      io.to(newMsg.senderId.toString()).emit("updateRecentContacts");
-      io.to(newMsg.receiverId.toString()).emit("updateRecentContacts");
-      io.to(newMsg.receiverId.toString()).emit("receiveMessage", newMsg);
-    }
-
-    return res.status(201).json(newMsg);
-  } catch (err) {
-    console.error("sendMessage error:", err);
-    return res
-      .status(500)
-      .json({ message: "Send failed", error: err.message });
-  }
-};
-
-// GET /api/messages/:senderId/:receiverId
-exports.getMessages = async (req, res) => {
-  const { senderId, receiverId } = req.params;
-
-  try {
-    const msgs = await Message.find({
-      $or: [
-        { senderId, receiverId },
-        { senderId: receiverId, receiverId: senderId },
-      ],
-    }).sort({ createdAt: 1 });
-
-    // Mark unread messages as read (for receiver)
-    const unreadMsgs = msgs.filter(
-      (msg) =>
-        msg.receiverId.toString() === receiverId.toString() &&
-        msg.status !== "read"
-    );
-
-    for (let msg of unreadMsgs) {
-      msg.status = "read";
-      await msg.save();
-
-      if (io) {
-        io.to(msg.senderId.toString()).emit("messageRead", {
-          messageId: msg._id,
-          status: "read",
-        });
-      }
-    }
-
-    return res.json(msgs);
-  } catch (err) {
-    console.error("getMessages error:", err);
-    return res
-      .status(500)
-      .json({ message: "Fetch failed", error: err.message });
-  }
-};
-
-// POST /api/messages/mark-read/:contactId
-exports.markChatRead = async (req, res) => {
-  try {
-    const userId = req.user._id; // current user
-    const contactId = req.params.contactId;
-
-    const result = await Message.updateMany(
-      {
-        senderId: contactId,
-        receiverId: userId,
-        status: { $ne: "read" },
-      },
-      { $set: { status: "read" } }
-    );
-
-    // send read events for ticks
-    if (io) {
-      const updatedMsgs = await Message.find({
-        senderId: contactId,
-        receiverId: userId,
-      }).select("_id senderId receiverId status");
-
-      updatedMsgs.forEach((msg) => {
-        io.to(msg.senderId.toString()).emit("messageRead", {
-          messageId: msg._id,
-          status: "read",
-        });
-      });
-    }
-
-    return res.status(200).json({
-      success: true,
-      modifiedCount: result.modifiedCount,
-    });
-  } catch (err) {
-    console.error("markChatRead error:", err);
-    return res
-      .status(500)
-      .json({ message: "Mark read failed", error: err.message });
-  }
-};
-
-// GET /api/messages/recent/contacts
+// ============================================
+// GET: Get Recent Contacts
+// ============================================
 exports.getRecentContacts = async (req, res) => {
-  const userId = req.user._id;
-
   try {
+    const userId = req.user.id;
+
+    // Find all messages involving this user
     const messages = await Message.find({
-      $or: [{ senderId: userId }, { receiverId: userId }],
-    }).sort({ createdAt: -1 });
+      $or: [{ sender: userId }, { receiver: userId }],
+    })
+      .sort({ createdAt: -1 })
+      .populate("sender", "name email avatar")
+      .populate("receiver", "name email avatar");
 
-    if (!messages || messages.length === 0) {
-      return res.status(200).json([]);
-    }
-
-    const contactMap = {};
+    // Group messages by contact
+    const contactMap = new Map();
 
     messages.forEach((msg) => {
-      const contactId =
-        msg.senderId.toString() === userId.toString()
-          ? msg.receiverId.toString()
-          : msg.senderId.toString();
+      const contact =
+        msg.sender._id.toString() === userId ? msg.receiver : msg.sender;
+      const contactId = contact._id.toString();
 
-      if (
-        !contactMap[contactId] ||
-        new Date(msg.createdAt) > new Date(contactMap[contactId].createdAt)
-      ) {
-        contactMap[contactId] = msg;
+      if (!contactMap.has(contactId)) {
+        contactMap.set(contactId, {
+          _id: contact._id,
+          name: contact.name,
+          email: contact.email,
+          avatar: contact.avatar,
+          lastMessage: msg.message || "[Image]",
+          lastMessageAt: msg.createdAt,
+          unreadCount: 0,
+        });
+      }
+
+      // Count unread messages
+      if (msg.receiver._id.toString() === userId && msg.status !== "read") {
+        contactMap.get(contactId).unreadCount += 1;
       }
     });
 
-    const sortedContactIds = Object.keys(contactMap).sort(
-      (a, b) =>
-        new Date(contactMap[b].createdAt) -
-        new Date(contactMap[a].createdAt)
+    // Convert map to sorted array
+    const recentContacts = Array.from(contactMap.values).sort(
+      (a, b) => new Date(b.lastMessageAt) - new Date(a.lastMessageAt)
     );
 
-    const contacts = await User.find({
-      _id: { $in: sortedContactIds },
-    }).select("-password");
-
-    const contactsSorted = sortedContactIds
-      .map((id) => contacts.find((u) => u._id.toString() === id))
-      .filter(Boolean);
-
-    const contactsWithUnread = await Promise.all(
-      contactsSorted.map(async (u) => {
-        const unreadCount = await Message.countDocuments({
-          senderId: u._id,
-          receiverId: userId,
-          status: { $ne: "read" },
-        });
-
-        return {
-          ...u.toObject(),
-          unreadCount,
-        };
-      })
-    );
-
-    return res.status(200).json(contactsWithUnread);
+    res.json({
+      success: true,
+      contacts: recentContacts,
+    });
   } catch (error) {
-    console.error("getRecentContacts error:", error);
-    return res.status(500).json({
+    console.error("❌ getRecentContacts error:", error);
+    res.status(500).json({
       message: "Failed to load contacts",
       error: error.message,
     });
   }
 };
 
-// POST /api/messages/upload-image
+// ============================================
+// GET: Get Messages Between Two Users
+// ============================================
+exports.getMessages = async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const currentUserId = req.user.id;
+
+    // Find all messages between users
+    const messages = await Message.find({
+      $or: [
+        { sender: currentUserId, receiver: userId },
+        { sender: userId, receiver: currentUserId },
+      ],
+    })
+      .sort({ createdAt: 1 })
+      .populate("sender", "name email avatar")
+      .populate("receiver", "name email avatar");
+
+    // Mark messages as read
+    await Message.updateMany(
+      {
+        sender: userId,
+        receiver: currentUserId,
+        status: { $ne: "read" },
+      },
+      { status: "read" }
+    );
+
+    res.json({
+      success: true,
+      messages,
+    });
+  } catch (error) {
+    console.error("❌ getMessages error:", error);
+    res.status(500).json({
+      message: "Failed to fetch messages",
+      error: error.message,
+    });
+  }
+};
+
+// ============================================
+// POST: Send Message
+// ============================================
+exports.sendMessage = async (req, res) => {
+  try {
+    const { receiverId, message, image } = req.body;
+    const senderId = req.user.id;
+
+    // Validate input
+    if (!receiverId || !message) {
+      return res.status(400).json({
+        message: "Receiver ID and message are required",
+      });
+    }
+
+    // Create message
+    const newMsg = await Message.create({
+      sender: senderId,
+      receiver: receiverId,
+      message,
+      image: image || null,
+      status: "sent",
+    });
+
+    // Populate sender and receiver info
+    await newMsg.populate("sender", "name email avatar");
+    await newMsg.populate("receiver", "name email avatar");
+
+    res.status(201).json({
+      success: true,
+      message: newMsg,
+    });
+  } catch (error) {
+    console.error("❌ sendMessage error:", error);
+    res.status(500).json({
+      message: "Failed to send message",
+      error: error.message,
+    });
+  }
+};
+
+// ============================================
+// POST: Mark Messages as Read
+// ============================================
+exports.markAsRead = async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const currentUserId = req.user.id;
+
+    // Update all unread messages
+    const result = await Message.updateMany(
+      {
+        sender: userId,
+        receiver: currentUserId,
+        status: { $ne: "read" },
+      },
+      { status: "read" }
+    );
+
+    res.json({
+      success: true,
+      modifiedCount: result.modifiedCount,
+    });
+  } catch (error) {
+    console.error("❌ markAsRead error:", error);
+    res.status(500).json({
+      message: "Failed to mark messages as read",
+      error: error.message,
+    });
+  }
+};
+
+// ============================================
+// POST: Upload Message Image
+// ============================================
 exports.uploadMessageImage = async (req, res) => {
   try {
-    if (!req.file || !req.file.buffer) {
-      return res.status(400).json({ message: "No file provided" });
+    if (!req.file) {
+      return res.status(400).json({
+        message: "No file provided",
+      });
     }
 
-    const { senderId, receiverId, clientId } = req.body;
+    const { receiverId } = req.body;
+    const senderId = req.user.id;
 
-    if (!senderId || !receiverId) {
-      return res
-        .status(400)
-        .json({ message: "Missing senderId or receiverId" });
+    if (!receiverId) {
+      return res.status(400).json({
+        message: "Receiver ID is required",
+      });
     }
 
+    // Upload to Cloudinary
     const uploadStream = cloudinary.uploader.upload_stream(
       {
         folder: "whispr/messages",
         resource_type: "image",
       },
       async (error, result) => {
-        if (error || !result) {
-          console.error("Cloudinary upload error:", error);
+        if (error) {
+          console.error("❌ Cloudinary error:", error);
           return res.status(500).json({
             message: "Upload failed",
-            error: error?.message || "Unknown error",
+            error: error.message,
           });
         }
 
+        // Create message with image
         const msgDoc = await Message.create({
-          senderId,
-          receiverId,
-          message: "",
+          sender: senderId,
+          receiver: receiverId,
+          message: "[Image]",
           image: result.secure_url,
-          clientId,
+          status: "sent",
         });
 
-        if (io) {
-          io.to(senderId.toString()).emit("updateRecentContacts");
-          io.to(receiverId.toString()).emit("updateRecentContacts");
-          io.to(receiverId.toString()).emit("receiveMessage", msgDoc);
-        }
+        await msgDoc.populate("sender", "name email avatar");
+        await msgDoc.populate("receiver", "name email avatar");
 
-        return res.status(201).json(msgDoc);
+        res.status(201).json({
+          success: true,
+          message: msgDoc,
+        });
       }
     );
 
     uploadStream.end(req.file.buffer);
-  } catch (err) {
-    console.error("uploadMessageImage error:", err);
-    return res
-      .status(500)
-      .json({ message: "Upload failed", error: err.message });
+  } catch (error) {
+    console.error("❌ uploadMessageImage error:", error);
+    res.status(500).json({
+      message: "Upload failed",
+      error: error.message,
+    });
   }
 };
+
+// ============================================
+// DELETE: Delete Message
+// ============================================
+exports.deleteMessage = async (req, res) => {
+  try {
+    const { messageId } = req.params;
+    const currentUserId = req.user.id;
+
+    // Find message
+    const message = await Message.findById(messageId);
+
+    if (!message) {
+      return res.status(404).json({
+        message: "Message not found",
+      });
+    }
+
+    // Check if user is sender
+    if (message.sender.toString() !== currentUserId) {
+      return res.status(403).json({
+        message: "Not authorized to delete this message",
+      });
+    }
+
+    // Delete message
+    await Message.findByIdAndDelete(messageId);
+
+    res.json({
+      success: true,
+      message: "Message deleted",
+    });
+  } catch (error) {
+    console.error("❌ deleteMessage error:", error);
+    res.status(500).json({
+      message: "Failed to delete message",
+      error: error.message,
+    });
+  }
+};
+

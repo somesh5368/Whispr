@@ -1,35 +1,24 @@
-// backend/routes/userRoutes.js
 const express = require("express");
 const router = express.Router();
 
 const {
+  getMe,
   searchUsers,
   getAllUsers,
-  updateProfile,
-  updateProfilePhoto,
-  getMe,
 } = require("../controllers/authController");
 const { protect } = require("../middleware/authMiddleware");
-const upload = require("../middleware/uploadProfile");
 
-// Get current logged-in user
+// ============================================
+// User Routes (No Duplicates - Auth handles profile updates)
+// ============================================
+
+// Get current logged-in user (Protected)
 router.get("/me", protect, getMe);
 
-// Search users
+// Search users (Protected)
 router.get("/search", protect, searchUsers);
 
-// Get all users except current
+// Get all users except current (Protected)
 router.get("/all/:userId", protect, getAllUsers);
-
-// Update profile fields (name, bio, phone, img URL string)
-router.put("/profile", protect, updateProfile);
-
-// Update profile photo via file upload (Cloudinary)
-router.put(
-  "/profile/photo",
-  protect,
-  upload.single("avatar"),
-  updateProfilePhoto
-);
 
 module.exports = router;

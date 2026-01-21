@@ -1,7 +1,5 @@
-// backend/models/user.js
-
-const mongoose = require("mongoose");
-const bcrypt = require("bcryptjs");
+const mongoose = require('mongoose');
+const bcrypt = require('bcryptjs');
 
 const userSchema = new mongoose.Schema(
   {
@@ -22,35 +20,34 @@ const userSchema = new mongoose.Schema(
       required: true,
       minlength: 6,
     },
-    img: {
+    avatar: {
       type: String,
-      default: "",
+      default: null,
     },
     bio: {
       type: String,
-      default: "",
+      default: '',
     },
     phone: {
       type: String,
-      default: "",
+      default: '',
     },
   },
   { timestamps: true }
 );
 
-// Hash password before save (single source of truth)
-userSchema.pre("save", async function (next) {
-  if (!this.isModified("password")) return next();
+// Hash password before save
+userSchema.pre('save', async function (next) {
+  if (!this.isModified('password')) return next();
 
   const salt = await bcrypt.genSalt(10);
   this.password = await bcrypt.hash(this.password, salt);
-
   next();
 });
 
-// Optional helper (not used in current controller but useful)
+// Compare password method
 userSchema.methods.matchPassword = async function (enteredPassword) {
-  return bcrypt.compare(enteredPassword, this.password);
+  return await bcrypt.compare(enteredPassword, this.password);
 };
 
-module.exports = mongoose.model("User", userSchema);
+module.exports = mongoose.model('User', userSchema);
