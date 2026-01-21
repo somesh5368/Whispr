@@ -1,43 +1,76 @@
-// src/App.jsx
-import React from "react";
-import { Routes, Route, Navigate } from "react-router-dom";
-import Login from "./pages/Login";
-import Register from "./pages/Register";
-import Home from "./pages/Home";
+import React, { useEffect, useState } from 'react';
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import Login from './pages/Login';
+import Register from './pages/Register';
+import Home from './pages/Home';
+import NotFound from './pages/NotFound';
 
-const PrivateRoute = ({ children }) => {
-  const user = (() => {
-    try {
-      const data = localStorage.getItem("user");
-      return data ? JSON.parse(data) : null;
-    } catch {
-      return null;
-    }
-  })();
-
-  if (!user?.token) {
-    return <Navigate to="/login" replace />;
+// Get user from localStorage
+const getUser = () => {
+  try {
+    const data = localStorage.getItem('user');
+    return data ? JSON.parse(data) : null;
+  } catch {
+    return null;
   }
+};
 
-  return children;
+// Protected Route Component
+const PrivateRoute = ({ children }) => {
+  const user = getUser();
+  return user?.token ? children : <Navigate to="/login" replace />;
 };
 
 function App() {
+  const [isOnline, setIsOnline] = useState(navigator.onLine);
+
+  useEffect(() => {
+    const handleOnline = () => setIsOnline(true);
+    const handleOffline = () => setIsOnline(false);
+
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, []);
+
   return (
-    <Routes>
-      <Route path="/" element={<Navigate to="/login" replace />} />
-      <Route path="/login" element={<Login />} />
-      <Route path="/register" element={<Register />} />
-      <Route
-        path="/main"
-        element={
-          <PrivateRoute>
-            <Home />
-          </PrivateRoute>
-        }
-      />
-      <Route path="*" element={<Navigate to="/login" replace />} />
-    </Routes>
+    <BrowserRouter>
+      {/* Offline Banner */}
+      {!isOnline && (
+        <div className="bg-red-500 text-white text-center py-2 text-sm font-medium">
+          ⚠️ You are offline. Some features may not work.
+        </div>
+      )}
+
+      <Routes>
+        {/* Auth Routes */}
+        <Route path="/login" element={<Login />} />
+        <Route path="/register" element={<Register />} />
+
+        {/* Protected Routes */}
+        <Route
+          path="/main"
+          element={
+            <PrivateRoute>
+              <Home />
+            </PrivateRoute>
+          }
+        />
+
+        {/* Redirect root to main or login */}
+        <Route
+          path="/"
+          element={<Navigate to={getUser()?.token ? '/main' : '/login'} replace />}
+        />
+
+        {/* 404 Not Found */}
+        <Route path="*" element={<NotFound />} />
+      </Routes>
+    </BrowserRouter>
   );
 }
 
