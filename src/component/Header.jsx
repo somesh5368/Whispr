@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from "react";
 import { Link, useNavigate, useLocation } from "react-router-dom";
-import { FaSignOutAlt, FaMenu, FaX } from "react-icons/fa6";
-import logo from "../components/img/logo.png";
+import { FaSignOutAlt, FaBars, FaTimes } from "react-icons/fa";
+import logo from "../component/img/logo.png";
 import Profile from "../pages/Profile";
 
 function Header() {
@@ -19,7 +19,6 @@ function Header() {
     }
   }, []);
 
-  // Fixed: Use avatar instead of img
   const avatarUrl =
     user?.avatar && user.avatar.trim()
       ? user.avatar
@@ -37,34 +36,35 @@ function Header() {
     location.pathname === "/login" || location.pathname === "/register";
 
   // ============================================
-  // SIMPLE HEADER FOR AUTH PAGES
+  // AUTH PAGES HEADER
   // ============================================
   if (isAuthPage) {
     return (
-      <header className="w-full border-b border-gray-200 bg-white shadow-sm">
+      <header className="w-full border-b border-gray-200 bg-white shadow-sm sticky top-0 z-40">
         <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between h-16">
-            {/* Logo */}
-            <Link to="/" className="flex items-center gap-2 group">
-              <div className="h-9 w-9 rounded-lg bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center shadow-md">
+            {/* LEFT: Logo */}
+            <Link to="/" className="flex items-center gap-3 group flex-shrink-0">
+              <div className="h-10 w-10 rounded-lg bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center shadow-md">
                 <img
                   src={logo}
                   alt="Whispr"
                   className="h-6 w-6 object-contain"
                 />
               </div>
-              <span className="text-lg font-bold text-gray-900 group-hover:text-blue-600 transition-colors">
-                Whispr
-              </span>
+              <div className="flex flex-col leading-tight">
+                <span className="text-lg font-bold text-gray-900">Whispr</span>
+                <span className="text-xs text-gray-500">Secure Chat</span>
+              </div>
             </Link>
 
-            {/* Navigation */}
-            <nav className="hidden sm:flex items-center gap-6">
+            {/* CENTER: Navigation */}
+            <nav className="hidden sm:flex items-center gap-8 flex-1 justify-center">
               <Link
                 to="/login"
                 className={`text-sm font-medium transition-colors ${
                   location.pathname === "/login"
-                    ? "text-blue-600"
+                    ? "text-blue-600 border-b-2 border-blue-600 pb-1"
                     : "text-gray-600 hover:text-blue-600"
                 }`}
               >
@@ -82,9 +82,9 @@ function Header() {
               </Link>
             </nav>
 
-            {/* Mobile Menu Button */}
+            {/* RIGHT: Mobile Menu Button */}
             <button className="sm:hidden text-gray-600 hover:text-blue-600">
-              <FaMenu className="text-xl" />
+              <FaBars className="text-xl" />
             </button>
           </div>
         </div>
@@ -100,12 +100,12 @@ function Header() {
       {/* Profile Modal */}
       {showProfile && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl">
+          <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl relative">
             <button
               onClick={() => setShowProfile(false)}
-              className="absolute top-4 right-4 p-2 hover:bg-gray-100 rounded-full transition-colors"
+              className="absolute top-4 right-4 p-2 hover:bg-gray-100 rounded-full transition-colors z-10"
             >
-              <FaX className="text-gray-600" />
+              <FaTimes className="text-gray-600" />
             </button>
             <Profile onClose={() => setShowProfile(false)} />
           </div>
@@ -115,38 +115,35 @@ function Header() {
       {/* Main Header */}
       <header className="w-full bg-gradient-to-r from-blue-600 via-purple-600 to-blue-700 text-white shadow-lg sticky top-0 z-30">
         <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
-          <div className="flex items-center justify-between h-16">
-            {/* Left: Logo */}
+          <div className="flex items-center justify-between h-16 gap-4">
+            {/* LEFT: Logo & Branding */}
             <Link
               to="/main"
-              className="flex items-center gap-3 group hover:opacity-90 transition-opacity"
+              className="flex items-center gap-3 group hover:opacity-90 transition-opacity flex-shrink-0"
             >
-              <div className="h-10 w-10 rounded-xl bg-white/20 backdrop-blur-sm flex items-center justify-center group-hover:bg-white/30 transition-colors border border-white/30">
+              <div className="h-11 w-11 rounded-xl bg-white/20 backdrop-blur-sm flex items-center justify-center group-hover:bg-white/30 transition-colors border border-white/30 shadow-lg">
                 <img
                   src={logo}
                   alt="Whispr"
-                  className="h-6 w-6 object-contain"
+                  className="h-7 w-7 object-contain"
                 />
               </div>
-              <div className="flex flex-col leading-tight hidden sm:block">
-                <span className="text-base font-bold tracking-tight">
-                  Whispr
-                </span>
+              <div className="flex flex-col leading-tight">
+                <span className="text-lg font-bold tracking-tight">Whispr</span>
                 <span className="text-xs text-blue-100 opacity-90">
                   Chat securely
                 </span>
               </div>
             </Link>
 
-            {/* Right: User Actions */}
-            <div className="flex items-center gap-2 sm:gap-3">
+            {/* RIGHT: User Actions */}
+            <div className="flex items-center gap-2 sm:gap-4 flex-shrink-0">
               {/* Profile Button */}
               <button
                 type="button"
                 onClick={() => setShowProfile(true)}
-                className="flex items-center gap-2 px-2 sm:px-3 py-2 rounded-full bg-white/15 hover:bg-white/25 backdrop-blur-sm transition-all duration-200 border border-white/20 hover:border-white/40 group"
+                className="flex items-center gap-2 px-3 sm:px-4 py-2 rounded-full bg-white/15 hover:bg-white/25 backdrop-blur-sm transition-all duration-200 border border-white/20 hover:border-white/40 group"
               >
-                {/* Avatar */}
                 <div className="relative">
                   <img
                     src={avatarUrl}
@@ -155,10 +152,8 @@ function Header() {
                   />
                   <span className="absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 bg-emerald-400 rounded-full border-2 border-white"></span>
                 </div>
-
-                {/* Name */}
-                <span className="hidden sm:inline text-sm font-medium max-w-[120px] truncate text-white">
-                  {user?.name || user?.user?.name || user?.email || "Profile"}
+                <span className="hidden sm:inline text-sm font-medium max-w-[100px] truncate">
+                  {user?.name || user?.user?.name || user?.email || "User"}
                 </span>
               </button>
 
@@ -167,7 +162,7 @@ function Header() {
                 type="button"
                 onClick={handleLogout}
                 title="Logout"
-                className="flex items-center justify-center gap-1 sm:gap-2 px-2 sm:px-3 py-2 rounded-full bg-white/15 hover:bg-red-500/30 backdrop-blur-sm transition-all duration-200 border border-white/20 hover:border-red-400/40 group text-white hover:text-white"
+                className="flex items-center justify-center gap-1 sm:gap-2 px-3 sm:px-4 py-2 rounded-full bg-white/15 hover:bg-red-500/30 backdrop-blur-sm transition-all duration-200 border border-white/20 hover:border-red-400/40"
               >
                 <FaSignOutAlt className="text-sm" />
                 <span className="hidden sm:inline text-sm font-medium">
@@ -182,9 +177,9 @@ function Header() {
                 className="sm:hidden p-2 rounded-full bg-white/15 hover:bg-white/25 transition-colors"
               >
                 {mobileMenuOpen ? (
-                  <FaX className="text-lg" />
+                  <FaTimes className="text-lg" />
                 ) : (
-                  <FaMenu className="text-lg" />
+                  <FaBars className="text-lg" />
                 )}
               </button>
             </div>
@@ -199,13 +194,13 @@ function Header() {
                     setShowProfile(true);
                     setMobileMenuOpen(false);
                   }}
-                  className="w-full text-left px-4 py-2 rounded-lg bg-white/10 hover:bg-white/20 transition-colors text-sm"
+                  className="w-full text-left px-4 py-2 rounded-lg bg-white/10 hover:bg-white/20 transition-colors text-sm font-medium"
                 >
                   📋 View Profile
                 </button>
                 <button
                   onClick={handleLogout}
-                  className="w-full text-left px-4 py-2 rounded-lg bg-red-500/20 hover:bg-red-500/30 transition-colors text-sm text-red-200"
+                  className="w-full text-left px-4 py-2 rounded-lg bg-red-500/20 hover:bg-red-500/30 transition-colors text-sm font-medium text-red-200"
                 >
                   🚪 Logout
                 </button>
