@@ -1,12 +1,12 @@
-import React, { useEffect, useState } from 'react';
-import Search from '../component/Search';
-import  socket  from '../utils/socket';
-import { API } from '../utils/api';
+// src/pages/Chats.jsx
+import React, { useEffect, useMemo, useState } from "react";
+import socket from "../utils/socket";
+import { API } from "../utils/api";
 
-// Helper to safely get user from localStorage
+// Read user safely from localStorage
 const getUser = () => {
   try {
-    const data = localStorage.getItem('user');
+    const data = localStorage.getItem("user");
     return data ? JSON.parse(data) : null;
   } catch {
     return null;
@@ -14,66 +14,75 @@ const getUser = () => {
 };
 
 function Chats({ onSelectContact }) {
-  const currentUser = getUser();
-  const [recentContacts, setRecentContacts] = useState([]);
-  const [loading, setLoading] = useState(false);
-  const [onlineUsers, setOnlineUsers] = useState(new Set());
-  const [searchQuery, setSearchQuery] = useState('');
-  const [searchResults, setSearchResults] = useState([]);
-  const [showSearch, setShowSearch] = useState(false);
+  const currentUser = useMemo(() => getUser(), []); // memoized user
 
-  // ============================================
-  // FETCH RECENT CONTACTS
-  // ============================================
+  const [recentContacts, setRecentContacts] = useState([]); // sidebar contacts
+  const [loading, setLoading] = useState(false); // loading recent contacts
+  const [onlineUsers, setOnlineUsers] = useState(new Set()); // online ids
+
+  const [searchQuery, setSearchQuery] = useState(""); // search input
+  const [searchResults, setSearchResults] = useState([]); // search list
+  const [searchLoading, setSearchLoading] = useState(false); // search spinner
+  const [showSearchResults, setShowSearchResults] = useState(false); // toggle list
+
+  // No user / token -> do not render
+  if (!currentUser || !currentUser.token) {
+    return null;
+  }
+
+  const authHeaders = {
+    Authorization: `Bearer ${currentUser.token}`, // auth header
+  };
+
+  const currentUserName =
+    currentUser?.user?.name || currentUser?.name || currentUser?.email || "User";
+
+  // Fetch recent contacts from API
   const fetchRecentContacts = async () => {
-    if (!currentUser?.token) return;
-
-    setLoading(true);
     try {
-      const res = await API.get('/api/messages/recent-contacts', {
-        headers: {
-          Authorization: `Bearer ${currentUser.token}`,
-        },
+      setLoading(true);
+
+      const res = await API.get("/api/messages/recent-contacts", {
+        headers: authHeaders,
       });
 
-      // Safety check
-      setRecentContacts(Array.isArray(res.data) ? res.data : []);
+      const contacts = Array.isArray(res.data?.contacts)
+        ? res.data.contacts
+        : Array.isArray(res.data)
+        ? res.data
+        : [];
+
+      setRecentContacts(contacts);
     } catch (err) {
-      console.error('❌ Failed to load recent contacts:', err);
+      console.error("Failed to load recent contacts:", err);
       setRecentContacts([]);
     } finally {
       setLoading(false);
     }
   };
 
-  // Load chats on mount
+  // Load recent contacts on mount
   useEffect(() => {
     fetchRecentContacts();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentUser?.token]);
+  }, [currentUser.token]);
 
-  // ============================================
-  // SOCKET: UPDATE RECENT CONTACTS
-  // ============================================
+  // Listen for socket event to refresh contacts
   useEffect(() => {
-    if (!currentUser?.token) return;
-
     const handleUpdate = () => {
       fetchRecentContacts();
     };
 
-    socket.off('updateRecentContacts');
-    socket.on('updateRecentContacts', handleUpdate);
+    socket.off("updateRecentContacts");
+    socket.on("updateRecentContacts", handleUpdate);
 
     return () => {
-      socket.off('updateRecentContacts', handleUpdate);
+      socket.off("updateRecentContacts", handleUpdate);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentUser?.token]);
+  }, [currentUser.token]);
 
-  // ============================================
-  // SOCKET: ONLINE/OFFLINE STATUS
-  // ============================================
+  // Track online/offline users
   useEffect(() => {
     const handleUserOnline = (userId) => {
       setOnlineUsers((prev) => {
@@ -91,76 +100,154 @@ function Chats({ onSelectContact }) {
       });
     };
 
-    socket.on('userOnline', handleUserOnline);
-    socket.on('userOffline', handleUserOffline);
+    socket.on("userOnline", handleUserOnline);
+    socket.on("userOffline", handleUserOffline);
 
     return () => {
-      socket.off('userOnline', handleUserOnline);
-      socket.off('userOffline', handleUserOffline);
+      socket.off("userOnline", handleUserOnline);
+      socket.off("userOffline", handleUserOffline);
     };
   }, []);
 
-  // ============================================
-  // OPEN CHAT & MARK AS READ
-  // ============================================
+  // Open chat and mark messages as read
   const handleOpenChat = async (user) => {
-    const id = user._id.toString();
-
     try {
-      // Mark messages as read
+      const id = (user._id || user.id).toString();
+
       await API.post(
         `/api/messages/mark-read/${id}`,
         {},
         {
-          headers: {
-            Authorization: `Bearer ${currentUser.token}`,
-          },
+          headers: authHeaders,
         }
       );
 
       fetchRecentContacts();
     } catch (err) {
-      console.error('❌ mark-read failed:', err);
+      console.error("mark-read failed:", err);
     }
 
-    // Call parent callback
-    onSelectContact(user);
+    // Save last opened contact
+    try {
+      localStorage.setItem(
+        "lastSelectedContact",
+        JSON.stringify({
+          id: user._id || user.id,
+          name: user.name,
+          email: user.email,
+          avatar: user.avatar,
+        })
+      );
+    } catch {
+      // ignore localStorage errors
+    }
+
+    onSelectContact(user); // open chat in parent
   };
 
-  // ============================================
-  // HANDLE SEARCH (Fixed - now visible!)
-  // ============================================
-  const handleSearch = (query) => {
+  // Call backend to search users
+  const searchUsers = async (q) => {
+    try {
+      setSearchLoading(true);
+
+      const res = await API.get("/api/users/search", {
+        params: { q },
+        headers: authHeaders,
+      });
+
+      const users = Array.isArray(res.data) ? res.data : [];
+      setSearchResults(users);
+      setShowSearchResults(true);
+    } catch (err) {
+      console.error("searchUsers failed:", err);
+      setSearchResults([]);
+      setShowSearchResults(true);
+    } finally {
+      setSearchLoading(false);
+    }
+  };
+
+  // Handle search input change
+  const handleSearchChange = (value) => {
+    const query = value;
     setSearchQuery(query);
 
-    if (query.trim().length > 0) {
-      const filtered = recentContacts.filter(
-        (contact) =>
-          contact.name?.toLowerCase().includes(query.toLowerCase()) ||
-          contact.email?.toLowerCase().includes(query.toLowerCase())
-      );
-      setSearchResults(filtered);
-      setShowSearch(true);
-    } else {
+    const trimmed = query.trim();
+    if (!trimmed) {
+      setShowSearchResults(false);
       setSearchResults([]);
-      setShowSearch(false);
+      return;
+    }
+
+    // Filter in recent contacts first
+    const localFiltered = recentContacts.filter(
+      (contact) =>
+        contact.name?.toLowerCase().includes(trimmed.toLowerCase()) ||
+        contact.email?.toLowerCase().includes(trimmed.toLowerCase())
+    );
+
+    if (localFiltered.length > 0) {
+      setSearchResults(localFiltered);
+      setShowSearchResults(true);
+    } else {
+      // Fall back to global user search
+      searchUsers(trimmed);
     }
   };
 
-  // ============================================
-  // RENDER
-  // ============================================
-  if (!currentUser) {
-    return null;
-  }
+  // Clear search box
+  const clearSearch = () => {
+    setSearchQuery("");
+    setSearchResults([]);
+    setShowSearchResults(false);
+  };
 
-  const currentUserName =
-    currentUser?.user?.name || currentUser?.name || currentUser?.email || 'User';
-  const displayContacts = showSearch ? searchResults : recentContacts;
+  // Decide which list to show
+  const displayContacts =
+    showSearchResults && searchQuery.trim().length
+      ? searchResults
+      : recentContacts;
 
+  // Skeleton loader for better UX
+  const renderSkeleton = () => (
+    <div className="flex-1 overflow-y-auto bg-white">
+      {Array.from({ length: 6 }).map((_, idx) => (
+        <div
+          key={idx}
+          className="flex items-center gap-3 px-3 py-3 border-b border-gray-100 animate-pulse"
+        >
+          <div className="h-11 w-11 rounded-full bg-gray-200" />
+          <div className="flex-1 space-y-2">
+            <div className="h-3 w-1/3 bg-gray-200 rounded" />
+            <div className="h-3 w-2/3 bg-gray-100 rounded" />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+
+  // Empty state for no chats / no search results
+  const renderEmptyState = () => {
+    const isSearch = !!searchQuery.trim();
+    return (
+      <div className="flex flex-col items-center justify-center py-12 text-xs text-gray-500 px-4 text-center">
+        <div className="text-3xl mb-2">💬</div>
+        <p className="font-medium">
+          {isSearch ? "No users or chats found" : "No recent chats"}
+        </p>
+        <p className="mt-1 text-gray-400">
+          {isSearch
+            ? "Try searching a different name or email."
+            : "Start a new conversation using the search above."}
+        </p>
+      </div>
+    );
+  };
+
+  // Render component
   return (
     <div className="flex flex-col h-full bg-white">
-      {/* ===== HEADER ===== */}
+      {/* Header bar */}
       <div className="px-4 py-3 bg-gradient-to-r from-blue-600 to-purple-600 text-white shadow-md">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
@@ -169,90 +256,74 @@ function Chats({ onSelectContact }) {
             </div>
             <div className="flex flex-col leading-tight">
               <span className="text-sm font-bold">Chats</span>
-              <span className="text-10px text-blue-100">{currentUserName}</span>
+              <span className="text-[10px] text-blue-100">
+                {currentUserName}
+              </span>
             </div>
           </div>
-          <span className="text-10px text-blue-100 flex items-center gap-1">
+          <div className="text-[10px] text-blue-100 flex items-center gap-1">
             <span className="hidden sm:inline">Connected</span>
             <span className="h-2.5 w-2.5 rounded-full bg-emerald-400 animate-pulse" />
-          </span>
+          </div>
         </div>
       </div>
 
-      {/* ===== SEARCH BAR (✅ NOW VISIBLE!) ===== */}
+      {/* Search box */}
       <div className="px-3 py-2 border-b border-gray-200 bg-white">
         <div className="flex items-center gap-2 bg-gray-100 rounded-lg px-3 py-2">
           <svg
             className="w-4 h-4 text-gray-500 flex-shrink-0"
+            viewBox="0 0 24 24"
             fill="none"
             stroke="currentColor"
-            viewBox="0 0 24 24"
           >
             <path
               strokeLinecap="round"
               strokeLinejoin="round"
-              strokeWidth={2}
+              strokeWidth="2"
               d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
             />
           </svg>
           <input
             type="text"
-            placeholder="Search chats..."
             value={searchQuery}
-            onChange={(e) => handleSearch(e.target.value)}
+            onChange={(e) => handleSearchChange(e.target.value)}
+            placeholder="Search users or chats..."
             className="flex-1 bg-transparent text-sm placeholder-gray-500 focus:outline-none"
           />
           {searchQuery && (
             <button
-              onClick={() => {
-                setSearchQuery('');
-                setShowSearch(false);
-                setSearchResults([]);
-              }}
-              className="text-gray-500 hover:text-gray-700"
+              type="button"
+              onClick={clearSearch}
+              className="text-gray-400 hover:text-gray-600 text-xs"
             >
-              ✕
+              Clear
             </button>
           )}
         </div>
+        {searchLoading && (
+          <p className="mt-1 text-[10px] text-gray-400">Searching…</p>
+        )}
       </div>
 
-      {/* ===== CHAT LIST ===== */}
-      <div className="flex-1 overflow-y-auto bg-white">
-        {/* Loading State */}
-        {loading && (
-          <div className="flex items-center justify-center py-8 text-xs text-gray-500">
-            <div className="animate-spin">⟳</div> Loading chats...
-          </div>
-        )}
-
-        {/* Empty State */}
-        {!loading && displayContacts.length === 0 && (
-          <div className="flex flex-col items-center justify-center py-12 text-xs text-gray-500 px-4 text-center">
-            <div className="text-3xl mb-2">💬</div>
-            <p className="font-medium">
-              {showSearch ? 'No chats found' : 'No recent chats'}
-            </p>
-            <p className="mt-1 text-gray-400">
-              {showSearch ? 'Try a different search' : 'Start one from search'}
-            </p>
-          </div>
-        )}
-
-        {/* Chat List */}
-        {!loading &&
-          Array.isArray(displayContacts) &&
-          displayContacts.map((user) => {
-            const id = user._id?.toString() || user.id?.toString();
+      {/* List content */}
+      {loading ? (
+        renderSkeleton()
+      ) : displayContacts.length === 0 ? (
+        renderEmptyState()
+      ) : (
+        <div className="flex-1 overflow-y-auto bg-white">
+          {displayContacts.map((user) => {
+            const id = (user._id || user.id || user.userId || "").toString();
             const isOnline = onlineUsers.has(id);
             const avatarUrl =
               user.avatar && user.avatar.trim()
                 ? user.avatar
                 : `https://ui-avatars.com/api/?name=${encodeURIComponent(
-                    user.name || 'User'
+                    user.name || user.email || "User"
                   )}&background=0D8ABC&color=fff`;
-            const displayName = user.name || user.email || 'Unknown';
-            const lastMessage = user.lastMessage || 'No messages yet';
+            const displayName = user.name || user.email || "Unknown";
+            const lastMessage = user.lastMessage || "Say hello 👋";
             const unreadCount = user.unreadCount || 0;
 
             return (
@@ -262,7 +333,7 @@ function Chats({ onSelectContact }) {
                 onClick={() => handleOpenChat(user)}
                 className="w-full flex items-center gap-3 px-3 py-3 hover:bg-gray-50 transition-colors border-b border-gray-100 last:border-b-0 focus:outline-none focus:bg-blue-50"
               >
-                {/* Avatar with Online Indicator */}
+                {/* Avatar and online dot */}
                 <div className="relative flex-shrink-0">
                   <img
                     src={avatarUrl}
@@ -274,34 +345,34 @@ function Chats({ onSelectContact }) {
                   )}
                 </div>
 
-                {/* Chat Info */}
+                {/* Contact info */}
                 <div className="flex-1 min-w-0 text-left">
-                  {/* Name & Time */}
                   <div className="flex items-center justify-between mb-0.5">
-                    <span className="text-13px font-semibold text-gray-900 truncate">
+                    <span className="text-[13px] font-semibold text-gray-900 truncate">
                       {displayName}
                     </span>
-                    <span className="text-10px text-gray-400 ml-2 flex-shrink-0">
-                      {user.lastMessageAt
-                        ? new Date(user.lastMessageAt).toLocaleTimeString('en-US', {
-                            hour: '2-digit',
-                            minute: '2-digit',
+                    {user.lastMessageAt && (
+                      <span className="text-[10px] text-gray-400 ml-2 flex-shrink-0">
+                        {new Date(user.lastMessageAt).toLocaleTimeString(
+                          "en-US",
+                          {
+                            hour: "2-digit",
+                            minute: "2-digit",
                             hour12: true,
-                          })
-                        : ''}
-                    </span>
+                          }
+                        )}
+                      </span>
+                    )}
                   </div>
-
-                  {/* Last Message & Unread Badge */}
                   <div className="flex items-center justify-between gap-2">
-                    <span className="text-11px text-gray-600 truncate flex-1">
+                    <span className="text-[11px] text-gray-600 truncate">
                       {lastMessage.length > 40
-                        ? `${lastMessage.substring(0, 40)}...`
+                        ? `${lastMessage.substring(0, 40)}…`
                         : lastMessage}
                     </span>
                     {unreadCount > 0 && (
-                      <span className="ml-2 min-w-20px h-20px rounded-full bg-red-500 text-9px text-white font-semibold flex items-center justify-center flex-shrink-0 px-1.5">
-                        {unreadCount > 99 ? '99+' : unreadCount}
+                      <span className="ml-2 min-w-[20px] h-[20px] rounded-full bg-red-500 text-[9px] text-white font-semibold flex items-center justify-center flex-shrink-0 px-1.5">
+                        {unreadCount > 99 ? "99+" : unreadCount}
                       </span>
                     )}
                   </div>
@@ -309,7 +380,8 @@ function Chats({ onSelectContact }) {
               </button>
             );
           })}
-      </div>
+        </div>
+      )}
     </div>
   );
 }

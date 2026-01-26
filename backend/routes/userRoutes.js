@@ -1,3 +1,4 @@
+// routes/userRoutes.js
 const express = require("express");
 const router = express.Router();
 
@@ -5,20 +6,16 @@ const {
   getMe,
   searchUsers,
   getAllUsers,
-} = require("../controllers/authController");
-const { protect } = require("../middleware/authMiddleware");
+} = require("../controllers/authController"); // controller functions
+const { protect } = require("../middleware/authMiddleware"); // auth guard
 
-// ============================================
-// User Routes (No Duplicates - Auth handles profile updates)
-// ============================================
-
-// Get current logged-in user (Protected)
+// Get current logged-in user
 router.get("/me", protect, getMe);
 
-// Search users (Protected)
+// Search users by query (name/email)
 router.get("/search", protect, searchUsers);
 
-// Get all users except current (Protected)
+// Get all users except current
 router.get("/all/:userId", protect, getAllUsers);
 
 module.exports = router;
