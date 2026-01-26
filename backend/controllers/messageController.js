@@ -1,50 +1,53 @@
+// controllers/messageController.js
 const Message = require("../models/message");
 const User = require("../models/user");
 const cloudinary = require("../config/cloudinary");
 
-// ============================================
-// GET: Get Recent Contacts
-// ============================================
+// Get recent contacts for sidebar
 exports.getRecentContacts = async (req, res) => {
   try {
-    const userId = req.user.id;
+    const userId = req.user.id; // current user
 
-    // Find all messages involving this user
+    // All messages where user is sender or receiver
     const messages = await Message.find({
       $or: [{ sender: userId }, { receiver: userId }],
     })
-      .sort({ createdAt: -1 })
+      .sort({ createdAt: -1 }) // latest first
       .populate("sender", "name email avatar")
       .populate("receiver", "name email avatar");
 
-    // Group messages by contact
-    const contactMap = new Map();
+    const contactMap = new Map(); // group by contact
 
     messages.forEach((msg) => {
+      // determine other person in this message
       const contact =
         msg.sender._id.toString() === userId ? msg.receiver : msg.sender;
       const contactId = contact._id.toString();
 
+      // first time this contact appears
       if (!contactMap.has(contactId)) {
         contactMap.set(contactId, {
           _id: contact._id,
           name: contact.name,
           email: contact.email,
           avatar: contact.avatar,
-          lastMessage: msg.message || "[Image]",
+          lastMessage: msg.message || "[Image]", // fallback text
           lastMessageAt: msg.createdAt,
           unreadCount: 0,
         });
       }
 
-      // Count unread messages
-      if (msg.receiver._id.toString() === userId && msg.status !== "read") {
+      // count unread messages for this contact
+      if (
+        msg.receiver._id.toString() === userId &&
+        msg.status !== "read"
+      ) {
         contactMap.get(contactId).unreadCount += 1;
       }
     });
 
-    // Convert map to sorted array
-    const recentContacts = Array.from(contactMap.values).sort(
+    // convert map to array and sort by last message time
+    const recentContacts = Array.from(contactMap.values()).sort(
       (a, b) => new Date(b.lastMessageAt) - new Date(a.lastMessageAt)
     );
 
@@ -53,7 +56,7 @@ exports.getRecentContacts = async (req, res) => {
       contacts: recentContacts,
     });
   } catch (error) {
-    console.error("❌ getRecentContacts error:", error);
+    console.error("getRecentContacts error:", error);
     res.status(500).json({
       message: "Failed to load contacts",
       error: error.message,
@@ -61,26 +64,23 @@ exports.getRecentContacts = async (req, res) => {
   }
 };
 
-// ============================================
-// GET: Get Messages Between Two Users
-// ============================================
+// Get messages between two users
 exports.getMessages = async (req, res) => {
   try {
-    const { userId } = req.params;
-    const currentUserId = req.user.id;
+    const { userId } = req.params; // other user
+    const currentUserId = req.user.id; // current user
 
-    // Find all messages between users
     const messages = await Message.find({
       $or: [
         { sender: currentUserId, receiver: userId },
         { sender: userId, receiver: currentUserId },
       ],
     })
-      .sort({ createdAt: 1 })
+      .sort({ createdAt: 1 }) // oldest first
       .populate("sender", "name email avatar")
       .populate("receiver", "name email avatar");
 
-    // Mark messages as read
+    // mark all messages from other user as read
     await Message.updateMany(
       {
         sender: userId,
@@ -95,7 +95,7 @@ exports.getMessages = async (req, res) => {
       messages,
     });
   } catch (error) {
-    console.error("❌ getMessages error:", error);
+    console.error("getMessages error:", error);
     res.status(500).json({
       message: "Failed to fetch messages",
       error: error.message,
@@ -103,31 +103,27 @@ exports.getMessages = async (req, res) => {
   }
 };
 
-// ============================================
-// POST: Send Message
-// ============================================
+// Send text message
 exports.sendMessage = async (req, res) => {
   try {
     const { receiverId, message, image } = req.body;
     const senderId = req.user.id;
 
-    // Validate input
-    if (!receiverId || !message) {
+    // require receiver and some content
+    if (!receiverId || (!message && !image)) {
       return res.status(400).json({
-        message: "Receiver ID and message are required",
+        message: "Receiver ID and message or image are required",
       });
     }
 
-    // Create message
     const newMsg = await Message.create({
       sender: senderId,
       receiver: receiverId,
-      message,
+      message: message || "[Image]", // default text for image-only
       image: image || null,
       status: "sent",
     });
 
-    // Populate sender and receiver info
     await newMsg.populate("sender", "name email avatar");
     await newMsg.populate("receiver", "name email avatar");
 
@@ -136,7 +132,7 @@ exports.sendMessage = async (req, res) => {
       message: newMsg,
     });
   } catch (error) {
-    console.error("❌ sendMessage error:", error);
+    console.error("sendMessage error:", error);
     res.status(500).json({
       message: "Failed to send message",
       error: error.message,
@@ -144,15 +140,12 @@ exports.sendMessage = async (req, res) => {
   }
 };
 
-// ============================================
-// POST: Mark Messages as Read
-// ============================================
+// Mark messages from a specific user as read
 exports.markAsRead = async (req, res) => {
   try {
-    const { userId } = req.params;
-    const currentUserId = req.user.id;
+    const { userId } = req.params; // other user
+    const currentUserId = req.user.id; // current user
 
-    // Update all unread messages
     const result = await Message.updateMany(
       {
         sender: userId,
@@ -167,7 +160,7 @@ exports.markAsRead = async (req, res) => {
       modifiedCount: result.modifiedCount,
     });
   } catch (error) {
-    console.error("❌ markAsRead error:", error);
+    console.error("markAsRead error:", error);
     res.status(500).json({
       message: "Failed to mark messages as read",
       error: error.message,
@@ -175,9 +168,7 @@ exports.markAsRead = async (req, res) => {
   }
 };
 
-// ============================================
-// POST: Upload Message Image
-// ============================================
+// Upload image + create message
 exports.uploadMessageImage = async (req, res) => {
   try {
     if (!req.file) {
@@ -195,7 +186,7 @@ exports.uploadMessageImage = async (req, res) => {
       });
     }
 
-    // Upload to Cloudinary
+    // upload buffer to Cloudinary
     const uploadStream = cloudinary.uploader.upload_stream(
       {
         folder: "whispr/messages",
@@ -203,18 +194,17 @@ exports.uploadMessageImage = async (req, res) => {
       },
       async (error, result) => {
         if (error) {
-          console.error("❌ Cloudinary error:", error);
+          console.error("Cloudinary error:", error);
           return res.status(500).json({
             message: "Upload failed",
             error: error.message,
           });
         }
 
-        // Create message with image
         const msgDoc = await Message.create({
           sender: senderId,
           receiver: receiverId,
-          message: "[Image]",
+          message: "[Image]", // fixed label
           image: result.secure_url,
           status: "sent",
         });
@@ -229,9 +219,9 @@ exports.uploadMessageImage = async (req, res) => {
       }
     );
 
-    uploadStream.end(req.file.buffer);
+    uploadStream.end(req.file.buffer); // send buffer to Cloudinary
   } catch (error) {
-    console.error("❌ uploadMessageImage error:", error);
+    console.error("uploadMessageImage error:", error);
     res.status(500).json({
       message: "Upload failed",
       error: error.message,
@@ -239,16 +229,13 @@ exports.uploadMessageImage = async (req, res) => {
   }
 };
 
-// ============================================
-// DELETE: Delete Message
-// ============================================
+// Delete message by ID
 exports.deleteMessage = async (req, res) => {
   try {
     const { messageId } = req.params;
     const currentUserId = req.user.id;
 
-    // Find message
-    const message = await Message.findById(messageId);
+    const message = await Message.findById(messageId); // find message
 
     if (!message) {
       return res.status(404).json({
@@ -256,26 +243,24 @@ exports.deleteMessage = async (req, res) => {
       });
     }
 
-    // Check if user is sender
+    // only sender can delete
     if (message.sender.toString() !== currentUserId) {
       return res.status(403).json({
         message: "Not authorized to delete this message",
       });
     }
 
-    // Delete message
-    await Message.findByIdAndDelete(messageId);
+    await Message.findByIdAndDelete(messageId); // delete message
 
     res.json({
       success: true,
       message: "Message deleted",
     });
   } catch (error) {
-    console.error("❌ deleteMessage error:", error);
+    console.error("deleteMessage error:", error);
     res.status(500).json({
       message: "Failed to delete message",
       error: error.message,
     });
   }
 };
-
