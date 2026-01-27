@@ -14,6 +14,7 @@ import socket from "../utils/socket";
 
 const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:5000";
 
+// Optional client-side image compression
 const compressImage = (file, maxWidth = 1024, quality = 0.75) =>
   new Promise((resolve, reject) => {
     const img = new Image();
@@ -50,6 +51,13 @@ const compressImage = (file, maxWidth = 1024, quality = 0.75) =>
     reader.readAsDataURL(file);
   });
 
+// Normalize message from backend / socket to have senderId / receiverId
+const normalizeMessage = (msg) => ({
+  ...msg,
+  senderId: msg.senderId || msg.sender,
+  receiverId: msg.receiverId || msg.receiver,
+});
+
 function Details({ user, onOpenProfile, onBack, layout = "desktop" }) {
   const [message, setMessage] = useState("");
   const [messages, setMessages] = useState([]);
@@ -78,8 +86,10 @@ function Details({ user, onOpenProfile, onBack, layout = "desktop" }) {
 
   const currentUser = storedUser?.user || storedUser || null;
   const currentUserId = currentUser?._id || currentUser?.id;
+  const token = storedUser?.token;
   const isMobileLayout = layout === "mobile";
 
+  // Join / leave socket room for current user
   useEffect(() => {
     if (!currentUserId) return;
     socket.emit("join", currentUserId);
@@ -88,22 +98,25 @@ function Details({ user, onOpenProfile, onBack, layout = "desktop" }) {
     };
   }, [currentUserId]);
 
+  // Fetch messages with selected user (REST)
   useEffect(() => {
     if (!user || (!user?._id && !user?.id)) return;
-    if (!currentUserId) return;
+    if (!currentUserId || !token) return;
     const otherId = user._id || user.id;
+    if (!otherId) return;
 
     const fetchMessages = async () => {
       try {
         const { data } = await axios.get(
-          `${API_BASE}/api/messages/${currentUserId}/${otherId}`,
+          `${API_BASE}/api/messages/${otherId}`,
           {
             headers: {
-              Authorization: `Bearer ${storedUser?.token}`,
+              Authorization: `Bearer ${token}`,
             },
           }
         );
-        setMessages(data);
+        const serverMessages = data.messages || [];
+        setMessages(serverMessages.map(normalizeMessage));
       } catch (err) {
         console.error("Failed to fetch messages", err);
         setMessages([]);
@@ -111,31 +124,24 @@ function Details({ user, onOpenProfile, onBack, layout = "desktop" }) {
     };
 
     fetchMessages();
-  }, [user, currentUserId, storedUser?.token]);
+  }, [user, currentUserId, token]);
 
+  // Send message via socket (no local optimistic add)
   const sendMessage = (payload = {}) => {
     if (!user) return;
     const otherId = user._id || user.id;
     if (!otherId || !currentUserId) return;
 
-    const clientId = `cid-${Date.now()}-${Math.random()
-      .toString(16)
-      .slice(2)}`;
-
     const base = {
       senderId: currentUserId,
       receiverId: otherId,
+      sender: currentUserId,
+      receiver: otherId,
       timestamp: Date.now(),
-      clientId,
       ...payload,
     };
 
     socket.emit("sendMessage", base);
-
-    setMessages((prev) => [
-      ...prev,
-      { ...base, status: "sent", _id: `tmp-${clientId}` },
-    ]);
   };
 
   const handleSend = () => {
@@ -143,7 +149,7 @@ function Details({ user, onOpenProfile, onBack, layout = "desktop" }) {
     sendMessage({ message: message.trim() });
     setMessage("");
 
-    if (user) {
+    if (user && currentUserId) {
       const otherId = user._id || user.id;
       socket.emit("stopTyping", { to: otherId, from: currentUserId });
     }
@@ -157,7 +163,7 @@ function Details({ user, onOpenProfile, onBack, layout = "desktop" }) {
     const otherId = user._id || user.id;
     if (!otherId) return;
 
-    socket.emit("typing", { to: otherId, from: currentUserId });
+    socket.emit("typing", { to: otherId, from: currentUserId, isTyping: true });
 
     if (typingTimeoutRef.current) {
       clearTimeout(typingTimeoutRef.current);
@@ -166,6 +172,18 @@ function Details({ user, onOpenProfile, onBack, layout = "desktop" }) {
     typingTimeoutRef.current = setTimeout(() => {
       socket.emit("stopTyping", { to: otherId, from: currentUserId });
     }, 800);
+  };
+
+  const handleEmojiClick = (emojiData) => {
+    setMessage((prev) => (prev || "") + (emojiData?.emoji || ""));
+    setShowEmojiPicker(false);
+    setTimeout(() => {
+      inputRef.current?.focus();
+    }, 0);
+  };
+
+  const toggleEmojiPicker = () => {
+    setShowEmojiPicker((prev) => !prev);
   };
 
   const handleDownloadImage = async (url) => {
@@ -186,37 +204,37 @@ function Details({ user, onOpenProfile, onBack, layout = "desktop" }) {
     }
   };
 
+  // Receive messages via socket (single source of truth)
   useEffect(() => {
-    const recv = (data) => {
-      setMessages((prev) => {
-        if (data._id && prev.some((m) => m._id === data._id)) return prev;
+    if (!currentUserId) return;
 
-        if (data.clientId) {
-          const idx = prev.findIndex(
-            (m) =>
-              m.clientId === data.clientId &&
-              m.senderId?.toString() === data.senderId?.toString() &&
-              m.receiverId?.toString() === data.receiverId?.toString()
+    const recv = (data) => {
+      const normalized = normalizeMessage(data);
+
+      setMessages((prev) => {
+        // If same _id exists, update it
+        if (normalized._id && prev.some((m) => m._id === normalized._id)) {
+          return prev.map((m) =>
+            m._id === normalized._id ? { ...m, ...normalized } : m
           );
-          if (idx !== -1) {
-            const copy = [...prev];
-            copy[idx] = { ...data };
-            return copy;
-          }
         }
 
-        return [...prev, data];
+        // Otherwise append as new
+        return [...prev, normalized];
       });
 
-      if (data.receiverId?.toString() === currentUserId?.toString()) {
+      // Only receiver sends delivery/read receipts
+      if (
+        normalized.receiverId?.toString() === currentUserId?.toString()
+      ) {
         socket.emit("messageDelivered", {
-          messageId: data._id,
-          senderId: data.senderId,
+          messageId: normalized._id,
+          senderId: normalized.senderId,
         });
         setTimeout(() => {
           socket.emit("messageRead", {
-            messageId: data._id,
-            senderId: data.senderId,
+            messageId: normalized._id,
+            senderId: normalized.senderId,
           });
         }, 500);
       }
@@ -226,8 +244,9 @@ function Details({ user, onOpenProfile, onBack, layout = "desktop" }) {
     return () => socket.off("receiveMessage", recv);
   }, [currentUserId]);
 
+  // Delivered / read updates
   useEffect(() => {
-    const delivered = (messageId) => {
+    const delivered = ({ messageId }) => {
       setMessages((prev) =>
         prev.map((msg) =>
           msg._id === messageId || msg.id === messageId
@@ -236,7 +255,8 @@ function Details({ user, onOpenProfile, onBack, layout = "desktop" }) {
         )
       );
     };
-    const read = (messageId) => {
+
+    const read = ({ messageId }) => {
       setMessages((prev) =>
         prev.map((msg) =>
           msg._id === messageId || msg.id === messageId
@@ -254,26 +274,30 @@ function Details({ user, onOpenProfile, onBack, layout = "desktop" }) {
     };
   }, []);
 
+  // Typing indicator (only other user)
   useEffect(() => {
     if (!user || !currentUserId) return;
     const otherId = user._id || user.id;
     if (!otherId) return;
 
-    const handleTyping = ({ from }) => {
-      if (from?.toString() === otherId?.toString()) setIsTyping(true);
+    const handleUserTyping = ({ from, isTyping: typing }) => {
+      if (from?.toString() === otherId?.toString()) setIsTyping(!!typing);
     };
+
     const handleStopTyping = ({ from }) => {
       if (from?.toString() === otherId?.toString()) setIsTyping(false);
     };
 
-    socket.on("typing", handleTyping);
+    socket.on("userTyping", handleUserTyping);
     socket.on("stopTyping", handleStopTyping);
+
     return () => {
-      socket.off("typing", handleTyping);
+      socket.off("userTyping", handleUserTyping);
       socket.off("stopTyping", handleStopTyping);
     };
   }, [user, currentUserId]);
 
+  // Online / offline
   useEffect(() => {
     if (!user) return;
     const otherId = user._id || user.id;
@@ -294,6 +318,7 @@ function Details({ user, onOpenProfile, onBack, layout = "desktop" }) {
     };
   }, [user]);
 
+  // Scroll to bottom
   useEffect(() => {
     scrollRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
@@ -334,25 +359,13 @@ function Details({ user, onOpenProfile, onBack, layout = "desktop" }) {
     ? "online"
     : "last seen recently";
 
-  const handleEmojiClick = (emojiData) => {
-    setMessage((prev) => (prev || "") + (emojiData?.emoji || ""));
-    setShowEmojiPicker(false);
-    setTimeout(() => {
-      inputRef.current?.focus();
-    }, 0);
-  };
-
-  const toggleEmojiPicker = () => {
-    setShowEmojiPicker((prev) => !prev);
-  };
-
   const handleImageClick = () => {
     if (fileInputRef.current) fileInputRef.current.click();
   };
 
   const handleFileChange = async (e) => {
     let file = e.target.files?.[0];
-    if (!file || !user || !currentUserId) return;
+    if (!file || !user || !currentUserId || !token) return;
     const otherId = user._id || user.id;
     if (!otherId) return;
 
@@ -365,15 +378,9 @@ function Details({ user, onOpenProfile, onBack, layout = "desktop" }) {
         console.warn("Compression failed, sending original", err);
       }
 
-      const clientId = `cid-${Date.now()}-${Math.random()
-        .toString(16)
-        .slice(2)}`;
-
       const formData = new FormData();
       formData.append("image", file);
-      formData.append("senderId", currentUserId);
       formData.append("receiverId", otherId);
-      formData.append("clientId", clientId);
 
       const res = await axios.post(
         `${API_BASE}/api/messages/upload-image`,
@@ -381,21 +388,15 @@ function Details({ user, onOpenProfile, onBack, layout = "desktop" }) {
         {
           headers: {
             "Content-Type": "multipart/form-data",
-            Authorization: `Bearer ${storedUser?.token}`,
+            Authorization: `Bearer ${token}`,
           },
         }
       );
 
       const data = res.data;
+      const msgDoc = normalizeMessage(data.message || data);
 
-      if (data && (data._id || data.id)) {
-        setMessages((prev) => [...prev, { ...data, status: "sent" }]);
-        socket.emit("sendMessage", data);
-      } else if (data && data.url) {
-        sendMessage({ image: data.url });
-      }
-
-      setMessage("");
+      setMessages((prev) => [...prev, msgDoc]);
     } catch (err) {
       console.error("Image upload failed", err.response?.data || err.message);
       alert(err.response?.data?.message || "Image upload failed");
@@ -417,6 +418,8 @@ function Details({ user, onOpenProfile, onBack, layout = "desktop" }) {
         (m.message || "").toLowerCase().includes(searchQuery.toLowerCase())
       )
     : messages;
+
+  const otherId = user._id || user.id;
 
   return (
     <>
@@ -456,25 +459,22 @@ function Details({ user, onOpenProfile, onBack, layout = "desktop" }) {
               </button>
             </div>
 
-           <div className="flex items-center gap-2">
-  {/* mobile + desktop dono par visible */}
-  <button
-    onClick={() => setShowSearch(true)}
-    className="text-[11px] px-2.5 py-1.5 rounded-full bg-emerald-700 hover:bg-emerald-800"
-  >
-    Search
-  </button>
-  <button
-    type="button"
-    onClick={() => setShowClearConfirm(true)}
-    className="text-[11px] px-2.5 py-1.5 rounded-full bg-red-500 hover:bg-red-600"
-  >
-    Clear
-  </button>
-
-  <span className="h-2 w-2 rounded-full bg-emerald-300" />
-</div>
-
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setShowSearch(true)}
+                className="text-[11px] px-2.5 py-1.5 rounded-full bg-emerald-700 hover:bg-emerald-800"
+              >
+                Search
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowClearConfirm(true)}
+                className="text-[11px] px-2.5 py-1.5 rounded-full bg-red-500 hover:bg-red-600"
+              >
+                Clear
+              </button>
+              <span className="h-2 w-2 rounded-full bg-emerald-300" />
+            </div>
           </div>
         </div>
 

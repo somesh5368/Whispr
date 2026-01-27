@@ -1,7 +1,7 @@
 // controllers/messageController.js
 const Message = require("../models/message");
 const User = require("../models/user");
-const cloudinary = require("../config/cloudinary");
+const { cloudinary } = require("../config/cloudinary");
 
 // Get recent contacts for sidebar
 exports.getRecentContacts = async (req, res) => {
