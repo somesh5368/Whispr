@@ -1,0 +1,31 @@
+// backend/middleware/uploadMiddleware.js
+const multer = require("multer");
+
+// Configure storage (memory for Cloudinary)
+const storage = multer.memoryStorage();
+
+// File filter for images only
+const fileFilter = (req, file, cb) => {
+  const allowedMimes = ["image/jpeg", "image/png", "image/gif", "image/webp"];
+  if (allowedMimes.includes(file.mimetype)) {
+    cb(null, true);
+  } else {
+    cb(
+      new Error(
+        "Invalid file type. Only JPEG, PNG, GIF, and WebP images are allowed."
+      ),
+      false
+    );
+  }
+};
+
+// Configure multer
+const upload = multer({
+  storage,
+  limits: {
+    fileSize: 5 * 1024 * 1024, // 5MB
+  },
+  fileFilter,
+});
+
+module.exports = upload;

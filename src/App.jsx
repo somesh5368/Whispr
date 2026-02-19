@@ -1,14 +1,16 @@
-import React, { useEffect, useState } from 'react';
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
-import Login from './pages/Login';
-import Register from './pages/Register';
-import Home from './pages/Home';
-import NotFound from './pages/NotFound';
+// src/App.jsx
+import React, { useEffect, useState } from "react";
+import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+
+import Login from "./pages/Login";
+import Register from "./pages/Register";
+import Home from "./pages/Home";
+import NotFound from "./pages/NotFound";
 
 // Get user from localStorage
 const getUser = () => {
   try {
-    const data = localStorage.getItem('user');
+    const data = localStorage.getItem("user");
     return data ? JSON.parse(data) : null;
   } catch {
     return null;
@@ -28,12 +30,12 @@ function App() {
     const handleOnline = () => setIsOnline(true);
     const handleOffline = () => setIsOnline(false);
 
-    window.addEventListener('online', handleOnline);
-    window.addEventListener('offline', handleOffline);
+    window.addEventListener("online", handleOnline);
+    window.addEventListener("offline", handleOffline);
 
     return () => {
-      window.removeEventListener('online', handleOnline);
-      window.removeEventListener('offline', handleOffline);
+      window.removeEventListener("online", handleOnline);
+      window.removeEventListener("offline", handleOffline);
     };
   }, []);
 
@@ -61,10 +63,12 @@ function App() {
           }
         />
 
-        {/* Redirect root to main or login */}
+        {/* Redirect root to /main or /login */}
         <Route
           path="/"
-          element={<Navigate to={getUser()?.token ? '/main' : '/login'} replace />}
+          element={
+            <Navigate to={getUser()?.token ? "/main" : "/login"} replace />
+          }
         />
 
         {/* 404 Not Found */}

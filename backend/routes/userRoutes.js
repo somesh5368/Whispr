@@ -1,4 +1,5 @@
-// routes/userRoutes.js
+// backend/routes/userRoutes.js
+
 const express = require("express");
 const router = express.Router();
 
@@ -6,8 +7,9 @@ const {
   getMe,
   searchUsers,
   getAllUsers,
-} = require("../controllers/authController"); // controller functions
-const { protect } = require("../middleware/authMiddleware"); // auth guard
+} = require("../controllers/authController");
+
+const { protect } = require("../middleware/authMiddleware");
 
 // Get current logged-in user
 router.get("/me", protect, getMe);
