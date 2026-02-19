@@ -27,16 +27,17 @@ const Profile = ({ onClose }) => {
     if (!token) return;
 
     axios
-      .get(`${API_BASE}/api/users/me`, {
+      .get(`${API_BASE}/api/auth/me`, {
         headers: { Authorization: `Bearer ${token}` },
       })
       .then((res) => {
-        setProfile(res.data);
+        const user = res.data?.data?.user || res.data.user || res.data;
+        setProfile(user);
         setForm({
-          name: res.data.name || "",
-          img: res.data.img || "",
-          bio: res.data.bio || "",
-          phone: res.data.phone || "",
+          name: user.name || "",
+          img: user.avatar || "",
+          bio: user.bio || "",
+          phone: user.phone || "",
         });
       })
       .catch(() => setProfile(false));
@@ -49,18 +50,40 @@ const Profile = ({ onClose }) => {
     try {
       const { name, bio, phone } = form;
       const res = await axios.put(
-        `${API_BASE}/api/users/profile`,
+        `${API_BASE}/api/auth/profile`,
         { name, bio, phone },
         { headers: { Authorization: `Bearer ${token}` } }
       );
-      setProfile(res.data);
+
+      const user = res.data?.data?.user || res.data.user || res.data;
+      setProfile(user);
       setForm((prev) => ({
         ...prev,
-        name: res.data.name || "",
-        bio: res.data.bio || "",
-        phone: res.data.phone || "",
-        img: res.data.img || prev.img,
+        name: user.name || "",
+        bio: user.bio || "",
+        phone: user.phone || "",
+        img: user.avatar || prev.img,
       }));
+
+      // Also update localStorage user cache so avatar/name are in sync elsewhere
+      const stored = localStorage.getItem("user");
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        const updated = {
+          ...parsed,
+          user: {
+            ...(parsed.user || {}),
+            id: user.id || user._id,
+            name: user.name,
+            email: user.email,
+            avatar: user.avatar,
+            bio: user.bio,
+            phone: user.phone,
+          },
+        };
+        localStorage.setItem("user", JSON.stringify(updated));
+      }
+
       setEditMode(false);
     } catch {
       alert("Profile update failed");
@@ -79,7 +102,7 @@ const Profile = ({ onClose }) => {
       formData.append("avatar", file);
 
       const res = await axios.put(
-        `${API_BASE}/api/users/profile/photo`,
+        `${API_BASE}/api/auth/profile-photo`,
         formData,
         {
           headers: {
@@ -89,12 +112,32 @@ const Profile = ({ onClose }) => {
         }
       );
 
-      setProfile(res.data);
+      const user = res.data?.data?.user || res.data.user || res.data;
+      setProfile(user);
       setForm((prev) => ({
         ...prev,
-        img: res.data.img || prev.img,
+        img: user.avatar || prev.img,
       }));
       setFile(null);
+
+      // Sync localStorage cache with new avatar
+      const stored = localStorage.getItem("user");
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        const updated = {
+          ...parsed,
+          user: {
+            ...(parsed.user || {}),
+            id: user.id || user._id,
+            name: user.name,
+            email: user.email,
+            avatar: user.avatar,
+            bio: user.bio,
+            phone: user.phone,
+          },
+        };
+        localStorage.setItem("user", JSON.stringify(updated));
+      }
     } catch (err) {
       console.error(
         "Photo upload error:",
