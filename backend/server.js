@@ -1,3 +1,4 @@
+// backend/server.js
 const express = require("express");
 const dotenv = require("dotenv");
 const cors = require("cors");
@@ -15,8 +16,11 @@ const userRoutes = require("./routes/userRoutes");
 const socketHandler = require("./sockets/socketHandler");
 
 console.log("📋 Environment Check:");
-console.log(`MongoDB: ${process.env.MONGODB_URI ? "✅" : "❌"}`);
+console.log(`MongoDB: ${process.env.MONGO_URI ? "✅" : "❌"}`);
 console.log(`JWT Secret: ${process.env.JWT_SECRET ? "✅" : "❌"}`);
+console.log(
+  `Cloudinary: ${process.env.CLOUDINARY_CLOUD_NAME ? "✅" : "❌"}`
+);
 
 // Connect to MongoDB
 connectDB();
@@ -29,6 +33,7 @@ const app = express();
 const allowedOrigins = [
   "http://localhost:5173",
   "http://localhost:3000",
+  "http://localhost:3001",
   "https://whispr-nine.vercel.app",
   process.env.FRONTEND_URL,
 ].filter(Boolean);
@@ -89,6 +94,18 @@ const io = new Server(server, {
 socketHandler(io);
 
 // ============================================
+// Error Handling Middleware
+// ============================================
+app.use((err, req, res, next) => {
+  console.error("Error:", err);
+  res.status(err.status || 500).json({
+    success: false,
+    message: err.message || "Server Error",
+    error: process.env.NODE_ENV === "development" ? err : {},
+  });
+});
+
+// ============================================
 // Start Server
 // ============================================
 const PORT = process.env.PORT || 5000;
@@ -97,14 +114,14 @@ const NODE_ENV = process.env.NODE_ENV || "development";
 server.listen(PORT, () => {
   console.log(`
 ╔════════════════════════════════════════╗
-║  🚀 Whispr Server Started Successfully │
+║ 🚀 Whispr Server Started Successfully │
 ╠════════════════════════════════════════╣
-║  Environment: ${NODE_ENV}
-║  Port: ${PORT}
-║  Frontend: ${process.env.FRONTEND_URL || "Not configured"}
-║  WebSocket: Active
+║ Environment: ${NODE_ENV}
+║ Port: ${PORT}
+║ Frontend: ${process.env.FRONTEND_URL || "Not configured"}
+║ WebSocket: Active
 ╚════════════════════════════════════════╝
-  `);
+`);
 });
 
 // Graceful Shutdown

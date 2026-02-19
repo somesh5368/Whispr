@@ -1,85 +1,105 @@
-// controllers/authController.js
+// backend/controllers/authController.js
 const User = require("../models/user");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 const cloudinary = require("../config/cloudinary");
 
-// ============================================
 // Generate JWT Token
-// ============================================
 const generateToken = (id) => {
-  // Sign JWT with user id as payload
   return jwt.sign({ id }, process.env.JWT_SECRET, {
-    expiresIn: "30d", // token valid for 30 days
+    expiresIn: "30d",
   });
 };
 
-// ============================================
-// POST: Register User
-// ============================================
+// @POST /api/auth/register
+// Register a new user
 exports.registerUser = async (req, res) => {
   try {
-    const { name, email, password } = req.body;
+    const { name, email, password, confirmPassword } = req.body;
 
-    // Basic validation
+    // Validation
     if (!name || !email || !password) {
       return res.status(400).json({
-        message: "Please provide all required fields",
+        success: false,
+        message: "Please provide name, email, and password",
       });
     }
 
-    // Check if email already exists
+    // Validate password length
+    if (password.length < 6) {
+      return res.status(400).json({
+        success: false,
+        message: "Password must be at least 6 characters",
+      });
+    }
+
+    // Validate email format
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      return res.status(400).json({
+        success: false,
+        message: "Please provide a valid email",
+      });
+    }
+
+    // Check if user already exists
     const userExists = await User.findOne({
       email: email.toLowerCase().trim(),
     });
 
     if (userExists) {
       return res.status(400).json({
-        message: "User already exists with that email",
+        success: false,
+        message: "Email already registered. Please try another email.",
       });
     }
 
-    // Create user (password hash handled in User model)
+    // Create new user (password hashing handled in User model)
     const user = await User.create({
       name: name.trim(),
       email: email.toLowerCase().trim(),
       password,
     });
 
-    // Create JWT token
+    // Generate JWT token
     const token = generateToken(user._id);
 
+    // Return success response
     res.status(201).json({
       success: true,
-      user: {
-        id: user._id,
-        name: user.name,
-        email: user.email,
-        avatar: user.avatar,
-        bio: user.bio,
-        phone: user.phone,
+      message: "User registered successfully",
+      data: {
+        user: {
+          id: user._id,
+          name: user.name,
+          email: user.email,
+          avatar: user.avatar || null,
+          bio: user.bio || "",
+          phone: user.phone || "",
+        },
+        token,
       },
-      token,
     });
   } catch (error) {
     console.error("Register error:", error);
     res.status(500).json({
+      success: false,
       message: "Registration failed",
-      error: error.message,
+      error: process.env.NODE_ENV === "development" ? error.message : null,
     });
   }
 };
 
-// ============================================
-// POST: Login User
-// ============================================
+// @POST /api/auth/login
+// Login user
 exports.loginUser = async (req, res) => {
   try {
     const { email, password } = req.body;
 
-    // Basic validation
+    // Validation
     if (!email || !password) {
       return res.status(400).json({
+        success: false,
         message: "Please provide email and password",
       });
     }
@@ -87,133 +107,148 @@ exports.loginUser = async (req, res) => {
     // Find user by email
     const user = await User.findOne({
       email: email.toLowerCase().trim(),
-    });
+    }).select("+password");
 
     if (!user) {
       return res.status(401).json({
+        success: false,
         message: "Invalid credentials",
       });
     }
 
-    // Validate password using model helper
+    // Check password
     const isPasswordValid = await user.matchPassword(password);
 
     if (!isPasswordValid) {
       return res.status(401).json({
+        success: false,
         message: "Invalid credentials",
       });
     }
 
-    // Create JWT token
+    // Generate token
     const token = generateToken(user._id);
 
-    res.json({
+    // Return success
+    res.status(200).json({
       success: true,
-      user: {
-        id: user._id,
-        name: user.name,
-        email: user.email,
-        avatar: user.avatar,
-        bio: user.bio,
-        phone: user.phone,
+      message: "Login successful",
+      data: {
+        user: {
+          id: user._id,
+          name: user.name,
+          email: user.email,
+          avatar: user.avatar || null,
+          bio: user.bio || "",
+          phone: user.phone || "",
+        },
+        token,
       },
-      token,
     });
   } catch (error) {
     console.error("Login error:", error);
     res.status(500).json({
+      success: false,
       message: "Login failed",
-      error: error.message,
+      error: process.env.NODE_ENV === "development" ? error.message : null,
     });
   }
 };
 
-// ============================================
-// GET: Get Current User
-// ============================================
+// @GET /api/auth/me
+// Get current logged-in user
 exports.getMe = async (req, res) => {
   try {
-    // user id comes from auth middleware
     const user = await User.findById(req.user.id).select("-password");
 
     if (!user) {
       return res.status(404).json({
+        success: false,
         message: "User not found",
       });
     }
 
-    res.json({
+    res.status(200).json({
       success: true,
-      user: {
-        id: user._id,
-        name: user.name,
-        email: user.email,
-        avatar: user.avatar,
-        bio: user.bio,
-        phone: user.phone,
+      data: {
+        user: {
+          id: user._id,
+          name: user.name,
+          email: user.email,
+          avatar: user.avatar || null,
+          bio: user.bio || "",
+          phone: user.phone || "",
+        },
       },
     });
   } catch (error) {
     console.error("getMe error:", error);
     res.status(500).json({
+      success: false,
       message: "Failed to fetch user",
-      error: error.message,
+      error: process.env.NODE_ENV === "development" ? error.message : null,
     });
   }
 };
 
-// ============================================
-// PUT: Update User Profile
-// ============================================
+// @PUT /api/auth/profile
+// Update user profile (name, bio, phone)
 exports.updateProfile = async (req, res) => {
   try {
     const { name, bio, phone } = req.body;
+    const userId = req.user.id;
 
-    // Find current user
-    const user = await User.findById(req.user.id);
+    // Find user
+    const user = await User.findById(userId);
 
     if (!user) {
       return res.status(404).json({
+        success: false,
         message: "User not found",
       });
     }
 
-    // Update only provided fields
+    // Update fields if provided
     if (name) user.name = name.trim();
     if (bio !== undefined) user.bio = bio;
     if (phone) user.phone = phone;
 
+    // Save user
     await user.save();
 
-    res.json({
+    res.status(200).json({
       success: true,
-      user: {
-        id: user._id,
-        name: user.name,
-        email: user.email,
-        avatar: user.avatar,
-        bio: user.bio,
-        phone: user.phone,
+      message: "Profile updated successfully",
+      data: {
+        user: {
+          id: user._id,
+          name: user.name,
+          email: user.email,
+          avatar: user.avatar || null,
+          bio: user.bio || "",
+          phone: user.phone || "",
+        },
       },
     });
   } catch (error) {
     console.error("updateProfile error:", error);
     res.status(500).json({
+      success: false,
       message: "Profile update failed",
-      error: error.message,
+      error: process.env.NODE_ENV === "development" ? error.message : null,
     });
   }
 };
 
-// ============================================
-// PUT: Update Profile Photo
-// ============================================
+// @PUT /api/auth/profile-photo
+// Upload profile photo
 exports.updateProfilePhoto = async (req, res) => {
   try {
-    // Check if file is attached
+    // Check if file exists
     if (!req.file) {
       return res.status(400).json({
-        message: "No file provided",
+        success: false,
+        message: "No file provided. Please upload an image.",
       });
     }
 
@@ -222,115 +257,160 @@ exports.updateProfilePhoto = async (req, res) => {
 
     if (!user) {
       return res.status(404).json({
+        success: false,
         message: "User not found",
       });
     }
 
-    // Upload image buffer to Cloudinary
-    const uploadStream = cloudinary.uploader.upload_stream(
-      {
-        folder: "whispr/avatars",
-        transformation: [{ width: 300, height: 300, crop: "fill" }],
-      },
-      async (error, result) => {
-        if (error) {
-          console.error("Cloudinary upload error:", error);
-          return res.status(500).json({
-            message: "Upload failed",
-            error: error.message,
-          });
-        }
+    // Validate file size (max 5MB)
+    if (req.file.size > 5 * 1024 * 1024) {
+      return res.status(400).json({
+        success: false,
+        message: "File size must be less than 5MB",
+      });
+    }
 
-        // Save new avatar URL
-        user.avatar = result.secure_url;
-        await user.save();
+    // Validate file type
+    const allowedMimes = ["image/jpeg", "image/png", "image/gif", "image/webp"];
+    if (!allowedMimes.includes(req.file.mimetype)) {
+      return res.status(400).json({
+        success: false,
+        message: "Only image files are allowed (JPEG, PNG, GIF, WebP)",
+      });
+    }
 
-        res.json({
-          success: true,
-          user: {
-            id: user._id,
-            name: user.name,
-            email: user.email,
-            avatar: user.avatar,
-            bio: user.bio,
-            phone: user.phone,
-          },
-        });
+    // Delete old avatar from Cloudinary if exists
+    if (user.avatar && user.avatar.includes("cloudinary")) {
+      try {
+        const publicId = user.avatar.split("/").pop().split(".")[0];
+        await cloudinary.uploader.destroy(`whispr/avatars/${publicId}`);
+      } catch (err) {
+        console.warn("Could not delete old avatar:", err.message);
       }
-    );
+    }
 
-    // Send file buffer into upload stream
-    uploadStream.end(req.file.buffer);
+    // Upload to Cloudinary
+    return new Promise((resolve, reject) => {
+      const uploadStream = cloudinary.uploader.upload_stream(
+        {
+          folder: "whispr/avatars",
+          width: 300,
+          height: 300,
+          crop: "fill",
+          resource_type: "auto",
+        },
+        async (error, result) => {
+          if (error) {
+            console.error("Cloudinary upload error:", error);
+            return res.status(500).json({
+              success: false,
+              message: "Image upload failed",
+              error: error.message,
+            });
+          }
+
+          // Update user with new avatar
+          user.avatar = result.secure_url;
+          await user.save();
+
+          res.status(200).json({
+            success: true,
+            message: "Profile photo updated successfully",
+            data: {
+              user: {
+                id: user._id,
+                name: user.name,
+                email: user.email,
+                avatar: user.avatar,
+                bio: user.bio || "",
+                phone: user.phone || "",
+              },
+              imageUrl: result.secure_url,
+            },
+          });
+
+          resolve();
+        }
+      );
+
+      uploadStream.end(req.file.buffer);
+    });
   } catch (error) {
     console.error("updateProfilePhoto error:", error);
     res.status(500).json({
+      success: false,
       message: "Profile photo update failed",
-      error: error.message,
+      error: process.env.NODE_ENV === "development" ? error.message : null,
     });
   }
 };
 
-// ============================================
-// GET: Search Users (for global search)
-// ============================================
+// @GET /api/auth/search?q=query
+// Search users
 exports.searchUsers = async (req, res) => {
   try {
     const { q } = req.query;
-    const currentUserId = req.user?.id; // may exist from protect middleware
+    const currentUserId = req.user?.id;
 
-    // If no query string -> return empty
     if (!q || !q.trim()) {
-      return res.json([]);
+      return res.status(200).json({
+        success: true,
+        data: [],
+      });
     }
 
-    const regex = new RegExp(q.trim(), "i"); // case-insensitive
+    // Create case-insensitive regex
+    const regex = new RegExp(q.trim(), "i");
 
+    // Search query
     const query = {
-      $or: [
-        { name: { $regex: regex } },
-        { email: { $regex: regex } },
-      ],
+      $or: [{ name: regex }, { email: regex }],
     };
 
-    // Exclude current user if available
+    // Exclude current user
     if (currentUserId) {
       query._id = { $ne: currentUserId };
     }
 
-    const users = await User.find(query, { password: 0 }) // exclude password
-      .limit(10); // limit for performance
+    // Find users
+    const users = await User.find(query)
+      .select("_id name email avatar bio")
+      .limit(10);
 
-    res.json(users);
+    res.status(200).json({
+      success: true,
+      data: users,
+    });
   } catch (error) {
     console.error("searchUsers error:", error);
     res.status(500).json({
+      success: false,
       message: "Search failed",
-      error: error.message,
+      error: process.env.NODE_ENV === "development" ? error.message : null,
     });
   }
 };
 
-// ============================================
-// GET: Get All Users (except given userId)
-// ============================================
+// @GET /api/auth/users/:userId
+// Get all users except given user
 exports.getAllUsers = async (req, res) => {
   try {
     const { userId } = req.params;
 
-    const users = await User.find(
-      { _id: { $ne: userId } }, // exclude this user
-      { password: 0 } // hide password
-    );
+    const users = await User.find({ _id: { $ne: userId } })
+      .select("_id name email avatar bio")
+      .limit(50);
 
-    res.json({
+    res.status(200).json({
       success: true,
-      users,
+      data: users,
     });
   } catch (error) {
     console.error("getAllUsers error:", error);
     res.status(500).json({
+      success: false,
       message: "Failed to fetch users",
-      error: error.message,
+      error: process.env.NODE_ENV === "development" ? error.message : null,
     });
   }
 };

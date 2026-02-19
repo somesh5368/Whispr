@@ -1,18 +1,17 @@
-const Message = require('../models/message');
+// backend/sockets/socketHandler.js
+const Message = require("../models/message");
 
 const onlineUsers = new Set();
 const userSocketMap = new Map();
 
 const socketHandler = (io) => {
-  io.on('connection', (socket) => {
-    console.log('✅ New client connected:', socket.id);
+  io.on("connection", (socket) => {
+    console.log("New client connected:", socket.id);
 
-    // ============================================
-    // Join User Room
-    // ============================================
-    socket.on('join', (userId) => {
+    // ========== Join/Leave Events ==========
+    socket.on("join", ({ userId }) => {
       if (!userId) {
-        console.warn('❌ Join event: userId missing');
+        console.warn("Join event: userId missing");
         return;
       }
 
@@ -21,16 +20,13 @@ const socketHandler = (io) => {
       userSocketMap.set(userIdStr, socket.id);
       onlineUsers.add(userIdStr);
 
-      console.log(`👤 User ${userIdStr} joined. Online users: ${onlineUsers.size}`);
+      console.log(`User ${userIdStr} joined. Online users: ${onlineUsers.size}`);
 
       // Broadcast user online status
-      io.emit('userOnline', userIdStr);
+      io.emit("userOnline", { userId: userIdStr });
     });
 
-    // ============================================
-    // Leave User Room
-    // ============================================
-    socket.on('leave', (userId) => {
+    socket.on("leave", ({ userId }) => {
       if (!userId) return;
 
       const userIdStr = userId.toString();
@@ -38,137 +34,128 @@ const socketHandler = (io) => {
       userSocketMap.delete(userIdStr);
       onlineUsers.delete(userIdStr);
 
-      console.log(`👋 User ${userIdStr} left. Online users: ${onlineUsers.size}`);
-      io.emit('userOffline', userIdStr);
+      console.log(`User ${userIdStr} left. Online users: ${onlineUsers.size}`);
+
+      io.emit("userOffline", { userId: userIdStr });
     });
 
-    // ============================================
-    // Send Message
-    // ============================================
-    socket.on('sendMessage', async (data) => {
+    // ========== Message Events ==========
+    socket.on("sendMessage", async (data) => {
       try {
-        const { senderId, receiverId, message, image, timestamp, clientId } = data;
+        const { senderId, receiverId, message, image, timestamp, clientId } =
+          data;
 
         if (!senderId || !receiverId) {
-          console.warn('❌ sendMessage: Missing senderId or receiverId');
+          console.warn("sendMessage: Missing senderId or receiverId");
           return;
         }
 
-        // Create message in DB
+        // Create message in database (backend should handle via HTTP for better reliability)
         const newMsg = await Message.create({
           sender: senderId,
           receiver: receiverId,
           message,
           image: image || null,
-          status: 'sent',
+          status: "sent",
           timestamp: timestamp || Date.now(),
           clientId,
-        });
+        }).populate("sender", ["name", "email", "avatar"]);
 
-        // Populate sender info
-        await newMsg.populate('sender', 'name email avatar');
-
-        // Send to both users
+        // Send to receiver
         const receiverIdStr = receiverId.toString();
         const senderIdStr = senderId.toString();
 
-        io.to(receiverIdStr).emit('receiveMessage', {
+        io.to(receiverIdStr).emit("receiveMessage", {
           ...newMsg.toObject(),
           clientId,
         });
 
-        io.to(senderIdStr).emit('receiveMessage', newMsg.toObject());
+        // Send confirmation to sender
+        io.to(senderIdStr).emit("messageSent", {
+          clientId,
+          messageId: newMsg._id,
+          status: "sent",
+        });
 
-        // Tell both users to refresh recent contacts
-        io.to(receiverIdStr).emit('updateRecentContacts');
-        io.to(senderIdStr).emit('updateRecentContacts');
+        // Update recent contacts for both users
+        io.to(receiverIdStr).emit("updateRecentContacts");
+        io.to(senderIdStr).emit("updateRecentContacts");
 
-        console.log(`📨 Message from ${senderIdStr} to ${receiverIdStr}`);
+        console.log(`Message from ${senderIdStr} to ${receiverIdStr}`);
       } catch (err) {
-        console.error('❌ sendMessage error:', err.message);
-        socket.emit('error', { message: 'Failed to send message' });
+        console.error("sendMessage error:", err.message);
+        socket.emit("error", { message: "Failed to send message" });
       }
     });
 
-    // ============================================
-    // Message Delivered
-    // ============================================
-    socket.on('messageDelivered', async (data) => {
+    // ========== Message Status Events ==========
+    socket.on("messageDelivered", async (data) => {
       try {
         const { messageId, senderId } = data;
 
         const msg = await Message.findByIdAndUpdate(
           messageId,
-          { status: 'delivered' },
+          { status: "delivered" },
           { new: true }
         );
 
         if (msg) {
           const senderIdStr = senderId.toString();
-          io.to(senderIdStr).emit('messageDelivered', {
+          io.to(senderIdStr).emit("messageDelivered", {
             messageId,
-            status: 'delivered',
+            status: "delivered",
           });
-          console.log(`✅ Message ${messageId} delivered`);
         }
       } catch (err) {
-        console.error('❌ messageDelivered error:', err.message);
+        console.error("messageDelivered error:", err.message);
       }
     });
 
-    // ============================================
-    // Message Read
-    // ============================================
-    socket.on('messageRead', async (data) => {
+    socket.on("messageRead", async (data) => {
       try {
         const { messageId, senderId } = data;
 
         const msg = await Message.findByIdAndUpdate(
           messageId,
-          { status: 'read' },
+          { status: "read" },
           { new: true }
         );
 
         if (msg) {
           const senderIdStr = senderId.toString();
-          io.to(senderIdStr).emit('messageRead', {
+          io.to(senderIdStr).emit("messageRead", {
             messageId,
-            status: 'read',
+            status: "read",
           });
-          console.log(`👁️ Message ${messageId} read`);
         }
       } catch (err) {
-        console.error('❌ messageRead error:', err.message);
+        console.error("messageRead error:", err.message);
       }
     });
 
-    // ============================================
-    // Typing Indicator
-    // ============================================
-    socket.on('typing', (data) => {
+    // ========== Typing Indicator ==========
+    socket.on("typing", (data) => {
       const { to, from, isTyping } = data;
 
       if (!to || !from) return;
 
-      io.to(to.toString()).emit('userTyping', {
+      io.to(to.toString()).emit("userTyping", {
         from: from.toString(),
         isTyping,
       });
     });
 
-    // ============================================
-    // Disconnect
-    // ============================================
-    socket.on('disconnect', () => {
-      console.log('❌ Client disconnected:', socket.id);
+    // ========== Disconnect ==========
+    socket.on("disconnect", () => {
+      console.log("Client disconnected:", socket.id);
 
-      // Find and remove user from online users
+      // Remove user from online list
       for (const [userId, socketId] of userSocketMap.entries()) {
         if (socketId === socket.id) {
           onlineUsers.delete(userId);
           userSocketMap.delete(userId);
-          io.emit('userOffline', userId);
-          console.log(`👋 User ${userId} went offline`);
+          io.emit("userOffline", { userId });
+          console.log(`User ${userId} went offline`);
           break;
         }
       }
