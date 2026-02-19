@@ -1,6 +1,7 @@
+// src/utils/api.js
 import axios from 'axios';
 
-// ✅ FIXED: Proper API configuration
+// ✅ Proper API configuration
 const API_BASE_URL =
   import.meta.env.VITE_API_URL || 'https://whispr-j7jw.onrender.com';
 

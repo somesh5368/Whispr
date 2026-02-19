@@ -1,21 +1,23 @@
-const mongoose = require('mongoose');
+// backend/models/message.js (or Message.js)
+
+const mongoose = require("mongoose");
 
 const messageSchema = new mongoose.Schema(
   {
     sender: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: 'User',
+      ref: "User",
       required: true,
     },
     receiver: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: 'User',
+      ref: "User",
       required: true,
     },
     message: {
       type: String,
       trim: true,
-      default: '',
+      default: "",
     },
     image: {
       type: String,
@@ -23,8 +25,8 @@ const messageSchema = new mongoose.Schema(
     },
     status: {
       type: String,
-      enum: ['sent', 'delivered', 'read'],
-      default: 'sent',
+      enum: ["sent", "delivered", "read"],
+      default: "sent",
     },
     clientId: {
       type: String,
@@ -34,4 +36,8 @@ const messageSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-module.exports = mongoose.model('Message', messageSchema);
+// ✅ fix OverwriteModelError with nodemon
+const Message =
+  mongoose.models.Message || mongoose.model("Message", messageSchema);
+
+module.exports = Message;
