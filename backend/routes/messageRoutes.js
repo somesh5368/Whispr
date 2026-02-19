@@ -1,55 +1,45 @@
+// backend/routes/messageRoutes.js
+
 const express = require("express");
 const router = express.Router();
 
-const messageController = require("../controllers/messageController");
+const {
+  sendMessage,
+  getMessages,
+  getRecentContacts,
+  markAsRead,
+  uploadMessageImage,
+  updateMessageStatus,
+  deleteMessage,
+} = require("../controllers/messageController");
+
 const { protect } = require("../middleware/authMiddleware");
-const upload = require("../middleware/uploadProfile");
+const upload = require("../middleware/uploadMiddleware");
 
-// ============================================
-// Message Routes
-// ============================================
+// Send text message (image should be URL/base64 in body if used)
+router.post("/send", protect, sendMessage);
 
-// Get recent contacts for sidebar (Protected)
-router.get(
-  "/recent-contacts",
-  protect,
-  messageController.getRecentContacts
-);
-
-// Get chat messages between two users (Protected)
-router.get(
-  "/:userId",
-  protect,
-  messageController.getMessages
-);
-
-// Send a message via REST (Protected)
-router.post(
-  "/send",
-  protect,
-  messageController.sendMessage
-);
-
-// Mark all messages from a contact as read (Protected)
-router.post(
-  "/mark-read/:userId",
-  protect,
-  messageController.markAsRead
-);
-
-// Upload chat image - Cloudinary (Protected)
+// Upload image and create image message
 router.post(
   "/upload-image",
   protect,
   upload.single("image"),
-  messageController.uploadMessageImage
+  uploadMessageImage
 );
 
-// Delete a message (Protected)
-router.delete(
-  "/:messageId",
-  protect,
-  messageController.deleteMessage
-);
+// Get recent contacts for sidebar
+router.get("/recent", protect, getRecentContacts);
+
+// Get messages between current user and another user
+router.get("/:userId", protect, getMessages);
+
+// Mark messages from a specific user as read
+router.patch("/:userId/read", protect, markAsRead);
+
+// Update message status
+router.put("/:messageId/status", protect, updateMessageStatus);
+
+// Delete message
+router.delete("/:messageId", protect, deleteMessage);
 
 module.exports = router;
