@@ -77,21 +77,30 @@ const MessageBubble = ({
   senderName,
   senderAvatar,
 }) => {
-  const time = new Date(message.createdAt || message.timestamp).toLocaleTimeString('en-US', {
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: true,
-  });
+  const time = new Date(message.createdAt || message.timestamp).toLocaleTimeString(
+    'en-US',
+    {
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: true,
+    }
+  );
 
   const statusIcon = (status) => {
     if (status === 'sent') {
-      return <IoCheckmark className="text-11px text-gray-500 inline-block ml-1" />;
+      return (
+        <IoCheckmark className="text-11px text-gray-500 inline-block ml-1" />
+      );
     }
     if (status === 'delivered') {
-      return <IoCheckmarkDone className="text-11px text-gray-500 inline-block ml-1" />;
+      return (
+        <IoCheckmarkDone className="text-11px text-gray-500 inline-block ml-1" />
+      );
     }
     if (status === 'read') {
-      return <IoCheckmarkDoneSharp className="text-11px text-blue-500 inline-block ml-1" />;
+      return (
+        <IoCheckmarkDoneSharp className="text-11px text-blue-500 inline-block ml-1" />
+      );
     }
     return null;
   };
@@ -103,7 +112,11 @@ const MessageBubble = ({
         {!isMe && (
           <div className="flex-shrink-0 w-8 h-8 rounded-full overflow-hidden bg-gray-200 flex items-center justify-center">
             {senderAvatar ? (
-              <img src={senderAvatar} alt={senderName} className="w-full h-full object-cover" />
+              <img
+                src={senderAvatar}
+                alt={senderName}
+                className="w-full h-full object-cover"
+              />
             ) : (
               <span className="text-xs font-semibold text-gray-600">
                 {senderName?.charAt(0)?.toUpperCase() || 'U'}
@@ -135,14 +148,17 @@ const MessageBubble = ({
                 alt="shared"
                 className="rounded-lg max-h-64 max-w-xs object-cover"
                 onError={(e) => {
-                  e.target.src = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="100" height="100"%3E%3Crect fill="%23ddd" width="100" height="100"/%3E%3Ctext x="50" y="50" dominant-baseline="middle" text-anchor="middle" font-family="Arial" font-size="14" fill="%23999"%3EImage not found%3C/text%3E%3C/svg%3E';
+                  e.target.src =
+                    'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="100" height="100"%3E%3Crect fill="%23ddd" width="100" height="100"/%3E%3Ctext x="50" y="50" dominant-baseline="middle" text-anchor="middle" font-family="Arial" font-size="14" fill="%23999"%3EImage not found%3C/text%3E%3C/svg%3E';
                 }}
               />
               {!isMe && (
                 <button
                   onClick={() => onDownload(message.image)}
                   className={`text-xs mt-1 block ${
-                    isMe ? 'text-blue-200 hover:text-white' : 'text-gray-600 hover:text-gray-800 underline'
+                    isMe
+                      ? 'text-blue-200 hover:text-white'
+                      : 'text-gray-600 hover:text-gray-800 underline'
                   }`}
                 >
                   Download
@@ -392,9 +408,11 @@ function Details({
         }
 
         const formData = new FormData();
+        // field name must match backend upload.single("image")
         formData.append('image', file);
         formData.append('receiverId', otherId);
 
+        // Backend route: POST /api/messages/upload-image (handles Cloudinary + DB)
         const res = await axios.post(
           `${API_BASE}/api/messages/upload-image`,
           formData,
@@ -408,6 +426,9 @@ function Details({
 
         const msgDoc = normalizeMessage(res.data.message || res.data);
         setMessages((prev) => [...prev, msgDoc]);
+
+        // Also emit via socket to keep real-time in sync
+        socket.emit('sendMessage', msgDoc);
       } catch (err) {
         console.error('Image upload failed:', err.response?.data || err.message);
         alert(err.response?.data?.message || 'Image upload failed');
@@ -458,7 +479,7 @@ function Details({
         setTimeout(() => {
           socket.emit('messageRead', {
             messageId: normalized.id,
-                        senderId: normalized.senderId,
+            senderId: normalized.senderId,
           });
         }, 500);
       }
@@ -695,7 +716,8 @@ function Details({
           </div>
         ) : (
           filteredMessages.map((msg, index) => {
-            const isMe = msg.senderId?.toString() === currentUserId?.toString();
+            const isMe =
+              msg.senderId?.toString() === currentUserId?.toString();
             const msgKey = msg.id || `tmp-${index}`;
             const senderName = isMe ? 'You' : user.name || 'User';
             const senderAvatar = isMe ? '' : avatarUrl;
@@ -971,4 +993,3 @@ function Details({
 }
 
 export default Details;
-
