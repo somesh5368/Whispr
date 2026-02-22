@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import {
   IoCheckmark,
   IoCheckmarkDone,
@@ -99,7 +100,7 @@ const MessageBubble = ({
     }
     if (status === 'read') {
       return (
-        <IoCheckmarkDoneSharp className="text-11px text-blue-500 inline-block ml-1" />
+        <IoCheckmarkDoneSharp className="text-xs text-white/90 inline-block ml-1" />
       );
     }
     return null;
@@ -107,46 +108,36 @@ const MessageBubble = ({
 
   return (
     <div className={`flex w-full ${isMe ? 'justify-end' : 'justify-start'}`}>
-      <div className={`flex gap-2 max-w-xs ${isMe ? 'flex-row-reverse' : ''}`}>
-        {/* Avatar - only show for received messages */}
+      <div className={`flex gap-2 max-w-[85%] sm:max-w-xs ${isMe ? 'flex-row-reverse' : ''}`}>
         {!isMe && (
-          <div className="flex-shrink-0 w-8 h-8 rounded-full overflow-hidden bg-gray-200 flex items-center justify-center">
+          <div className="flex-shrink-0 w-8 h-8 rounded-full overflow-hidden bg-ws-surface-alt border border-ws-border flex items-center justify-center">
             {senderAvatar ? (
-              <img
-                src={senderAvatar}
-                alt={senderName}
-                className="w-full h-full object-cover"
-              />
+              <img src={senderAvatar} alt={senderName} className="w-full h-full object-cover" />
             ) : (
-              <span className="text-xs font-semibold text-gray-600">
+              <span className="text-xs font-semibold text-ws-text-muted">
                 {senderName?.charAt(0)?.toUpperCase() || 'U'}
               </span>
             )}
           </div>
         )}
 
-        {/* Message Bubble */}
         <div
-          className={`rounded-2xl px-4 py-2 ${
+          className={`rounded-2xl px-4 py-2.5 shadow-md ${
             isMe
-              ? 'bg-blue-500 text-white rounded-br-none'
-              : 'bg-gray-200 text-gray-900 rounded-bl-none'
+              ? 'bg-gradient-to-br from-indigo-500 to-purple-600 text-white rounded-br-md'
+              : 'bg-white border border-slate-200 text-slate-800 rounded-bl-md shadow-card'
           }`}
         >
-          {/* Sender name - only show for received messages */}
           {!isMe && (
-            <p className="text-xs font-semibold mb-1 opacity-75">
-              {senderName}
-            </p>
+            <p className="text-xs font-semibold mb-1 opacity-80">{senderName}</p>
           )}
 
-          {/* Image if present */}
           {message.image && (
             <div className="mb-2">
               <img
                 src={message.image}
                 alt="shared"
-                className="rounded-lg max-h-64 max-w-xs object-cover"
+                className="rounded-lg max-h-64 max-w-full object-cover"
                 onError={(e) => {
                   e.target.src =
                     'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="100" height="100"%3E%3Crect fill="%23ddd" width="100" height="100"/%3E%3Ctext x="50" y="50" dominant-baseline="middle" text-anchor="middle" font-family="Arial" font-size="14" fill="%23999"%3EImage not found%3C/text%3E%3C/svg%3E';
@@ -155,11 +146,7 @@ const MessageBubble = ({
               {!isMe && (
                 <button
                   onClick={() => onDownload(message.image)}
-                  className={`text-xs mt-1 block ${
-                    isMe
-                      ? 'text-blue-200 hover:text-white'
-                      : 'text-gray-600 hover:text-gray-800 underline'
-                  }`}
+                  className="text-xs mt-1 block text-ws-primary hover:underline"
                 >
                   Download
                 </button>
@@ -167,17 +154,15 @@ const MessageBubble = ({
             </div>
           )}
 
-          {/* Text message */}
           {message.message && (
             <p className="break-words whitespace-pre-wrap text-sm leading-snug">
               {message.message}
             </p>
           )}
 
-          {/* Time and status */}
           <div
             className={`flex items-center justify-end gap-1 mt-1 text-xs ${
-              isMe ? 'text-blue-200' : 'text-gray-500'
+              isMe ? 'text-white/80' : 'text-ws-text-muted'
             }`}
           >
             <span>{time}</span>
@@ -242,10 +227,10 @@ function Details({
   useEffect(() => {
     if (!currentUserId) return;
 
-    socket.emit('join', currentUserId);
+    socket.emit('join', { userId: currentUserId });
 
     return () => {
-      socket.emit('leave', currentUserId);
+      socket.emit('leave', { userId: currentUserId });
     };
   }, [currentUserId]);
 
@@ -306,21 +291,32 @@ function Details({
   );
 
   const handleSend = useCallback(() => {
-    if (!message.trim()) return;
+    const trimmed = message.trim();
+    if (!trimmed || !user || !currentUserId) return;
 
-    sendMessage({
-      message: message.trim(),
+    const otherId = user.id || user._id;
+    const tempId = `local-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+
+    // Optimistically append message so it appears instantly
+    const localMsg = normalizeMessage({
+      _id: tempId,
+      senderId: currentUserId,
+      receiverId: otherId,
+      message: trimmed,
+      status: 'sent',
+      timestamp: Date.now(),
     });
+
+    setMessages((prev) => [...prev, localMsg]);
+
+    sendMessage({ message: trimmed });
 
     setMessage('');
 
-    if (user && currentUserId) {
-      const otherId = user.id || user._id;
-      socket.emit('stopTyping', {
-        to: otherId,
-        from: currentUserId,
-      });
-    }
+    socket.emit('stopTyping', {
+      to: otherId,
+      from: currentUserId,
+    });
   }, [message, sendMessage, user, currentUserId]);
 
   const handleChange = useCallback(
@@ -356,9 +352,14 @@ function Details({
   // ==================
 
   const handleEmojiClick = useCallback((emojiData) => {
-    setMessage((prev) => prev + (emojiData?.emoji || ''));
+    const emoji = typeof emojiData === 'string'
+      ? emojiData
+      : (emojiData?.emoji ?? emojiData?.character ?? '');
+    if (emoji) {
+      setMessage((prev) => prev + emoji);
+    }
     setShowEmojiPicker(false);
-    setTimeout(() => inputRef.current?.focus(), 0);
+    setTimeout(() => inputRef.current?.focus(), 50);
   }, []);
 
   const toggleEmojiPicker = useCallback(() => {
@@ -396,6 +397,7 @@ function Details({
 
       const otherId = user.id || user._id;
       if (!otherId) return;
+      const receiverId = typeof otherId === 'string' ? otherId : String(otherId);
 
       try {
         setUploadingImage(true);
@@ -407,18 +409,12 @@ function Details({
           console.warn('Compression failed, sending original:', err);
         }
 
-        const formData = new FormData();
-        // field name must match backend upload.single("image")
-        formData.append('image', file);
-        formData.append('receiverId', otherId);
-
-        // Backend route: POST /api/messages/upload-image (handles Cloudinary + DB)
-        const res = await axios.post(
+        // postForm sets multipart/form-data with boundary correctly (field name "image" = multer.single("image"))
+        const res = await axios.postForm(
           `${API_BASE}/api/messages/upload-image`,
-          formData,
+          { image: file, receiverId },
           {
             headers: {
-              'Content-Type': 'multipart/form-data',
               Authorization: `Bearer ${token}`,
             },
           }
@@ -447,12 +443,17 @@ function Details({
   // RECEIVE MESSAGES
   // ==================
 
-  // Receive messages via socket (single source of truth)
+  // Receive messages via socket (single source of truth for incoming)
   useEffect(() => {
     if (!currentUserId) return;
 
     const recv = (data) => {
       const normalized = normalizeMessage(data);
+
+      // For messages we just sent, we already appended optimistically
+      if (normalized.senderId?.toString() === currentUserId?.toString()) {
+        return;
+      }
 
       setMessages((prev) => {
         // If same id exists, update it
@@ -625,11 +626,11 @@ function Details({
   }
 
   const avatarUrl =
-    user.img && user.img.trim()
-      ? user.img
+    (user.avatar && user.avatar.trim()) || (user.img && user.img.trim())
+      ? (user.avatar || user.img)
       : `https://ui-avatars.com/api/?name=${encodeURIComponent(
           user.name || 'U'
-        )}&background=0D8ABC&color=fff`;
+        )}&background=6366f1&color=fff`;
 
   const statusText = isTyping
     ? 'typing...'
@@ -638,52 +639,48 @@ function Details({
     : 'Last seen recently';
 
   return (
-    <div className="h-full flex flex-col bg-gray-50 relative">
-      {/* ==================== */}
-      {/* HEADER */}
-      {/* ==================== */}
-
-      <div className="px-3 py-2.5 bg-teal-600 text-white shadow-sm flex-shrink-0">
-        <div className="flex items-center justify-between">
-          {/* Left: Back button + User info */}
+    <div className="h-full flex flex-col bg-slate-50/50 relative">
+      {/* Chat header */}
+      <div className="px-4 py-3 bg-white border-b border-slate-200 flex-shrink-0 shadow-card">
+        <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-3 flex-1 min-w-0">
             {isMobile && (
               <button
                 type="button"
                 onClick={onBack}
-                className="text-xl mr-1 hover:opacity-80 transition-opacity flex-shrink-0"
+                className="p-2 -ml-1 rounded-lg hover:bg-ws-surface-alt text-ws-text transition flex-shrink-0"
                 aria-label="Back to chats"
               >
-                <FaArrowLeft />
+                <FaArrowLeft className="text-lg" />
               </button>
             )}
 
             <button
               type="button"
               onClick={onOpenProfile}
-              className="flex items-center gap-3 focus:outline-none hover:opacity-90 transition-opacity flex-1 min-w-0"
+              className="flex items-center gap-3 focus:outline-none rounded-lg hover:bg-ws-surface-alt transition flex-1 min-w-0 py-1"
             >
               <img
                 src={avatarUrl}
                 alt={user.name}
-                className="w-9 h-9 rounded-full object-cover border-2 border-white flex-shrink-0"
+                className="w-10 h-10 rounded-full object-cover border-2 border-ws-border flex-shrink-0"
               />
-              <div className="flex flex-col leading-tight min-w-0">
-                <span className="text-14px font-semibold max-w-160px sm:max-w-220px truncate text-white">
+              <div className="flex flex-col leading-tight min-w-0 text-left">
+                <span className="text-sm font-semibold text-ws-text truncate">
                   {user.name || user.username || 'Whispr User'}
                 </span>
-                <span className="text-11px text-emerald-100">
+                <span className="text-xs text-ws-text-muted flex items-center gap-1.5">
+                  {isOnline && <span className="h-2 w-2 rounded-full bg-ws-online" />}
                   {statusText}
                 </span>
               </div>
             </button>
           </div>
 
-          {/* Right: Action buttons */}
-          <div className="flex items-center gap-2 flex-shrink-0">
+          <div className="flex items-center gap-1 flex-shrink-0">
             <button
               onClick={() => setShowSearch(true)}
-              className="text-11px px-2.5 py-1.5 rounded-full bg-teal-700 hover:bg-teal-800 transition-colors flex-shrink-0"
+              className="p-2.5 rounded-lg text-ws-text-muted hover:text-ws-text hover:bg-ws-surface-alt transition"
               title="Search messages"
             >
               🔍
@@ -691,14 +688,11 @@ function Details({
             <button
               type="button"
               onClick={() => setShowClearConfirm(true)}
-              className="text-11px px-2.5 py-1.5 rounded-full bg-red-500 hover:bg-red-600 transition-colors flex-shrink-0"
+              className="p-2.5 rounded-lg text-ws-text-muted hover:text-red-600 hover:bg-red-50 transition"
               title="Clear chat"
             >
               🗑️
             </button>
-            {isOnline && (
-              <span className="h-2 w-2 rounded-full bg-emerald-300 flex-shrink-0" />
-            )}
           </div>
         </div>
       </div>
@@ -707,11 +701,11 @@ function Details({
       {/* MESSAGES AREA */}
       {/* ==================== */}
 
-      <div className="flex-1 overflow-y-auto px-3 py-4 space-y-3 bg-gray-50">
+      <div className="flex-1 overflow-y-auto px-4 sm:px-6 py-4 space-y-4 bg-gradient-to-b from-slate-50 to-white">
         {filteredMessages.length === 0 ? (
-          <div className="flex items-center justify-center h-full">
-            <p className="text-sm text-gray-400">
-              No messages yet. Start the conversation! 👋
+          <div className="flex flex-col items-center justify-center h-full min-h-[200px]">
+            <p className="text-sm text-ws-text-muted">
+              No messages yet. Say hello! 👋
             </p>
           </div>
         ) : (
@@ -744,24 +738,17 @@ function Details({
           })
         )}
 
-        {/* Typing indicator */}
         {isTyping && (
           <div className="flex gap-2 items-center">
-            <div className="flex-shrink-0 w-8 h-8 rounded-full bg-gray-300 flex items-center justify-center">
-              <span className="text-xs font-semibold text-gray-600">
+            <div className="flex-shrink-0 w-8 h-8 rounded-full bg-ws-surface border border-ws-border flex items-center justify-center">
+              <span className="text-xs font-semibold text-ws-text-muted">
                 {user.name?.charAt(0)?.toUpperCase() || 'U'}
               </span>
             </div>
-            <div className="flex gap-1 items-center bg-gray-300 px-3 py-2 rounded-2xl rounded-bl-none">
-              <span className="h-2 w-2 rounded-full bg-gray-500 animate-bounce" />
-              <span
-                className="h-2 w-2 rounded-full bg-gray-500 animate-bounce"
-                style={{ animationDelay: '0.2s' }}
-              />
-              <span
-                className="h-2 w-2 rounded-full bg-gray-500 animate-bounce"
-                style={{ animationDelay: '0.4s' }}
-              />
+            <div className="flex gap-1 items-center bg-ws-surface border border-ws-border px-3 py-2 rounded-2xl rounded-bl-md">
+              <span className="h-2 w-2 rounded-full bg-ws-text-muted animate-bounce" style={{ animationDelay: '0s' }} />
+              <span className="h-2 w-2 rounded-full bg-ws-text-muted animate-bounce" style={{ animationDelay: '0.2s' }} />
+              <span className="h-2 w-2 rounded-full bg-ws-text-muted animate-bounce" style={{ animationDelay: '0.4s' }} />
             </div>
           </div>
         )}
@@ -769,60 +756,53 @@ function Details({
         <div ref={scrollRef} />
       </div>
 
-      {/* ==================== */}
-      {/* INPUT AREA */}
-      {/* ==================== */}
-
-      <div className="px-3 py-3 bg-white border-t border-gray-200 flex-shrink-0">
-        {/* Emoji Picker */}
-        {showEmojiPicker && (
-          <div className="absolute bottom-24 left-0 z-20 p-2">
-            <div className="rounded-xl shadow-lg border border-gray-200 bg-white overflow-hidden">
+      {/* Input area */}
+      <div className="px-4 py-3 bg-white border-t border-slate-200 flex-shrink-0 relative shadow-[0_-4px_12px_rgba(0,0,0,0.04)]">
+        {showEmojiPicker && createPortal(
+          <div
+            className="fixed inset-0 z-[200] flex items-end justify-center sm:items-center sm:justify-end p-4 pb-24 sm:pb-4 sm:pr-4"
+            onClick={() => setShowEmojiPicker(false)}
+            role="presentation"
+          >
+            <div
+              className="rounded-2xl shadow-2xl border-2 border-ws-border bg-white overflow-hidden"
+              onClick={(e) => e.stopPropagation()}
+              role="dialog"
+              aria-label="Pick an emoji"
+            >
               <EmojiPicker
-                onEmojiClick={handleEmojiClick}
-                width={window.innerWidth < 640 ? 220 : 280}
-                height={window.innerWidth < 640 ? 260 : 320}
-                searchDisabled
+                onEmojiClick={(emojiData) => handleEmojiClick(emojiData)}
+                width={320}
+                height={400}
+                searchDisabled={false}
                 skinTonesDisabled
                 previewConfig={{ showPreview: false }}
                 theme="light"
               />
             </div>
-          </div>
+          </div>,
+          document.body
         )}
 
-        {/* Input controls */}
         <div className="relative flex items-center gap-2">
-          {/* Emoji button */}
           <button
             type="button"
             onClick={toggleEmojiPicker}
-            className="p-2 rounded-full text-gray-600 hover:text-gray-800 hover:bg-gray-100 transition flex-shrink-0"
-            title="Emoji picker"
+            className="p-2.5 rounded-lg text-ws-text-muted hover:text-ws-text hover:bg-ws-surface-alt transition flex-shrink-0"
+            title="Emoji"
           >
             <BsEmojiSmile className="text-lg" />
           </button>
-
-          {/* Image button */}
           <button
             type="button"
             onClick={handleImageClick}
-            className="p-2 rounded-full text-gray-600 hover:text-gray-800 hover:bg-gray-100 transition flex-shrink-0 disabled:opacity-50 disabled:cursor-not-allowed"
+            className="p-2.5 rounded-lg text-ws-text-muted hover:text-ws-text hover:bg-ws-surface-alt transition flex-shrink-0 disabled:opacity-50"
             disabled={uploadingImage}
             title="Upload image"
           >
             <HiOutlinePhotograph className="text-lg" />
           </button>
-
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept="image/*"
-            className="hidden"
-            onChange={handleFileChange}
-          />
-
-          {/* Message input */}
+          <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={handleFileChange} />
           <div className="flex-1 relative">
             <input
               ref={inputRef}
@@ -830,25 +810,16 @@ function Details({
               value={message}
               onChange={handleChange}
               onKeyDown={handleKeyDown}
-              placeholder={
-                uploadingImage ? 'Uploading image...' : 'Type a message'
-              }
+              placeholder={uploadingImage ? 'Uploading…' : 'Type a message'}
               disabled={uploadingImage}
-              className="w-full px-4 py-2.5 text-13px border border-gray-300 rounded-full bg-white focus:outline-none focus:ring-2 focus:ring-teal-600 focus:border-transparent disabled:bg-gray-100"
+              className="w-full px-4 py-2.5 text-sm border border-ws-border rounded-xl bg-ws-surface-alt focus:outline-none focus:ring-2 focus:ring-ws-primary/20 focus:border-ws-primary disabled:bg-ws-surface-alt"
             />
-            {isTyping && (
-              <span className="ml-3 text-10px text-gray-500 absolute right-3 top-1/2 -translate-y-1/2">
-                typing...
-              </span>
-            )}
           </div>
-
-          {/* Send button */}
           <button
             onClick={handleSend}
             disabled={!message.trim() || uploadingImage}
-            className="p-2.5 rounded-full bg-teal-600 text-white hover:bg-teal-700 disabled:opacity-60 disabled:cursor-not-allowed transition shadow-sm flex-shrink-0"
-            title="Send message"
+            className="p-2.5 rounded-xl bg-gradient-to-r from-indigo-500 to-purple-600 text-white hover:from-indigo-600 hover:to-purple-700 disabled:opacity-60 transition flex-shrink-0 shadow-lg shadow-indigo-500/30"
+            title="Send"
           >
             <IoIosSend className="text-lg" />
           </button>
@@ -860,90 +831,58 @@ function Details({
       {/* ==================== */}
 
       {showSearch && (
-        <div className="fixed inset-0 bg-black bg-opacity-40 flex items-center justify-center z-30 p-4">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md border border-gray-200">
-            {/* Header */}
-            <div className="flex items-center px-4 py-3 border-b border-gray-200">
-              <span className="text-sm font-semibold text-gray-900 flex-1">
-                Search messages
-              </span>
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-30 p-4">
+          <div className="bg-ws-surface rounded-2xl shadow-xl w-full max-w-md border border-ws-border">
+            <div className="flex items-center px-4 py-3 border-b border-ws-border">
+              <span className="text-sm font-semibold text-ws-text flex-1">Search in chat</span>
               <button
-                onClick={() => {
-                  setShowSearch(false);
-                  setSearchQuery('');
-                }}
-                className="text-xs text-gray-500 hover:text-gray-700 flex-shrink-0"
+                onClick={() => { setShowSearch(false); setSearchQuery(''); }}
+                className="p-2 rounded-lg text-ws-text-muted hover:text-ws-text hover:bg-ws-surface-alt"
               >
                 <FaTimes size={18} />
               </button>
             </div>
-
-            {/* Search input */}
             <div className="px-4 py-3">
               <input
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 placeholder="Search in this chat"
-                className="w-full px-3 py-2 text-sm border border-gray-300 rounded-full focus:outline-none focus:ring-2 focus:ring-teal-600 focus:border-transparent bg-gray-50"
+                className="w-full px-4 py-2.5 text-sm border border-ws-border rounded-lg focus:outline-none focus:ring-2 focus:ring-ws-primary/20 bg-ws-surface-alt"
                 autoFocus
               />
             </div>
-
-            {/* Results */}
             <div className="max-h-80 overflow-y-auto px-4 pb-3 space-y-2 text-xs">
               {!searchQuery.trim() ? (
-                <p className="text-gray-400 text-center py-4">
-                  Type to search messages
-                </p>
+                <p className="text-ws-text-muted text-center py-6">Type to search messages</p>
               ) : filteredMessages.length === 0 ? (
-                <p className="text-gray-400 text-center py-4">
-                  No messages found
-                </p>
+                <p className="text-ws-text-muted text-center py-6">No messages found</p>
               ) : (
                 filteredMessages.map((msg, index) => {
                   if (!msg.message) return null;
-
-                  const time = new Date(
-                    msg.createdAt || msg.timestamp
-                  ).toLocaleTimeString('en-US', {
-                    hour: '2-digit',
-                    minute: '2-digit',
-                    hour12: true,
+                  const time = new Date(msg.createdAt || msg.timestamp).toLocaleTimeString('en-US', {
+                    hour: '2-digit', minute: '2-digit', hour12: true,
                   });
-                  const isMe =
-                    msg.senderId?.toString() === currentUserId?.toString();
+                  const isMe = msg.senderId?.toString() === currentUserId?.toString();
                   const msgKey = msg.id || `tmp-${index}`;
-
                   return (
                     <div
                       key={msgKey}
-                      className="p-2 rounded-lg border border-gray-200 hover:bg-gray-50 cursor-pointer"
+                      className="p-3 rounded-lg border border-ws-border hover:bg-ws-surface-alt cursor-pointer transition"
                       onClick={() => {
                         setShowSearch(false);
                         setSearchQuery('');
                         setTimeout(() => {
                           const el = messageRefs.current[msgKey];
-                          if (el) {
-                            el.scrollIntoView({
-                              behavior: 'smooth',
-                              block: 'center',
-                            });
-                          }
+                          if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
                         }, 200);
                       }}
                     >
                       <div className="flex justify-between mb-1">
-                        <span className="font-medium text-gray-800">
-                          {isMe ? 'You' : user.name || 'User'}
-                        </span>
-                        <span className="text-10px text-gray-400">
-                          {time}
-                        </span>
+                        <span className="font-medium text-ws-text">{isMe ? 'You' : user.name || 'User'}</span>
+                        <span className="text-ws-text-muted">{time}</span>
                       </div>
-                      <p className="text-gray-700 text-11px line-clamp-2">
-                        {msg.message}
-                      </p>
+                      <p className="text-ws-text-muted text-sm line-clamp-2">{msg.message}</p>
                     </div>
                   );
                 })
@@ -958,29 +897,22 @@ function Details({
       {/* ==================== */}
 
       {showClearConfirm && (
-        <div className="fixed inset-0 bg-black bg-opacity-40 flex items-center justify-center z-40 p-4">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-4 border border-gray-200">
-            <h3 className="text-sm font-semibold text-gray-900 mb-1">
-              Clear chat?
-            </h3>
-            <p className="text-xs text-gray-500 mb-4">
-              This will remove all messages from this device. It will not delete
-              them for the other person.
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-40 p-4">
+          <div className="bg-ws-surface rounded-2xl shadow-xl w-full max-w-sm p-5 border border-ws-border">
+            <h3 className="text-base font-semibold text-ws-text mb-2">Clear chat?</h3>
+            <p className="text-sm text-ws-text-muted mb-5">
+              Messages will be removed from this device only. The other person will still see them.
             </p>
-
-            <div className="flex justify-end gap-2 text-xs">
+            <div className="flex justify-end gap-2">
               <button
-                className="px-4 py-2 rounded-full border border-gray-300 hover:bg-gray-50 transition"
+                className="px-4 py-2.5 rounded-lg border border-ws-border hover:bg-ws-surface-alt text-ws-text text-sm font-medium transition"
                 onClick={() => setShowClearConfirm(false)}
               >
                 Cancel
               </button>
               <button
-                className="px-4 py-2 rounded-full bg-red-500 text-white hover:bg-red-600 transition"
-                onClick={() => {
-                  setMessages([]);
-                  setShowClearConfirm(false);
-                }}
+                className="px-4 py-2.5 rounded-lg bg-red-500 text-white hover:bg-red-600 text-sm font-medium transition"
+                onClick={() => { setMessages([]); setShowClearConfirm(false); }}
               >
                 Clear chat
               </button>

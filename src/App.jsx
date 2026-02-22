@@ -43,8 +43,8 @@ function App() {
     <BrowserRouter>
       {/* Offline Banner */}
       {!isOnline && (
-        <div className="bg-red-500 text-white text-center py-2 text-sm font-medium">
-          ⚠️ You are offline. Some features may not work.
+        <div className="bg-amber-500 text-white text-center py-2 text-sm font-medium">
+          You're offline. Some features may not work until you're back online.
         </div>
       )}
 

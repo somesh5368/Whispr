@@ -1,26 +1,23 @@
-import React from "react";
+import React from 'react';
 
 function ChatsIcon({ img, name, title, onClick }) {
-    return (
-        <div
-            className="flex items-center mx-4 my-5 space-x-4 cursor-pointer"
-            onClick={onClick}
-        >
-            <div className="img h-10 w-10 md:h-12 md:w-12 lg:h-12 lg:w-12 overflow-hidden flex-shrink-0">
-                <img
-                    src={img}
-                    alt={`Profile picture of ${name}`}
-                    className="rounded-full object-cover h-full w-full"
-                />
-            </div>
-            <div className="text flex-1">
-                <p className="font-semibold text-base md:text-lg lg:text-sm">{name}</p>
-                <p className="opacity-70 text-sm md:text-base lg:text-sm font-medium">
-                    {title || "I'm whisprr user..."}
-                </p>
-            </div>
-        </div>
-    );
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="w-full flex items-center gap-3 px-3 py-3 rounded-lg hover:bg-ws-surface-alt transition text-left"
+    >
+      <img
+        src={img}
+        alt={`${name}`}
+        className="h-11 w-11 rounded-full object-cover border-2 border-ws-border flex-shrink-0"
+      />
+      <div className="flex-1 min-w-0">
+        <p className="font-semibold text-sm text-ws-text truncate">{name}</p>
+        <p className="text-xs text-ws-text-muted truncate">{title || "I'm on Whispr"}</p>
+      </div>
+    </button>
+  );
 }
 
 export default ChatsIcon;

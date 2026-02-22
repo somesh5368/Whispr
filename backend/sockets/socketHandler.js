@@ -9,7 +9,8 @@ const socketHandler = (io) => {
     console.log("New client connected:", socket.id);
 
     // ========== Join/Leave Events ==========
-    socket.on("join", ({ userId }) => {
+    socket.on("join", (data) => {
+      const userId = data && (typeof data === "object" ? data.userId : data);
       if (!userId) {
         console.warn("Join event: userId missing");
         return;
@@ -26,7 +27,8 @@ const socketHandler = (io) => {
       io.emit("userOnline", { userId: userIdStr });
     });
 
-    socket.on("leave", ({ userId }) => {
+    socket.on("leave", (data) => {
+      const userId = data && (typeof data === "object" ? data.userId : data);
       if (!userId) return;
 
       const userIdStr = userId.toString();
