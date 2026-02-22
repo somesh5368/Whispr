@@ -3,7 +3,7 @@ import axios from 'axios';
 
 // ✅ Proper API configuration
 const API_BASE_URL =
-  import.meta.env.VITE_API_URL || 'https://whispr-j7jw.onrender.com';
+  import.meta.env.VITE_API_URL || 'http://localhost:5000';
 
 // Create axios instance
 export const API = axios.create({
@@ -17,13 +17,14 @@ export const API = axios.create({
 // Request interceptor
 API.interceptors.request.use(
   (config) => {
-    const user = localStorage.getItem('user');
-    if (user) {
-      const { token } = JSON.parse(user);
-      if (token) {
-        config.headers.Authorization = `Bearer ${token}`;
+    try {
+      const raw = localStorage.getItem('user');
+      if (raw) {
+        const data = JSON.parse(raw);
+        const token = data?.token ?? data?.user?.token;
+        if (token) config.headers.Authorization = `Bearer ${token}`;
       }
-    }
+    } catch (_) {}
     return config;
   },
   (error) => {

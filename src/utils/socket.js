@@ -7,7 +7,9 @@ const SOCKET_URL =
   import.meta.env.VITE_API_URL ||
   "http://localhost:5000";
 
-console.log("🔌 Connecting socket to:", SOCKET_URL);
+if (import.meta.env.DEV) {
+  console.log("🔌 Connecting socket to:", SOCKET_URL);
+}
 
 const socket = io(SOCKET_URL, {
   reconnection: true,
@@ -18,17 +20,10 @@ const socket = io(SOCKET_URL, {
   withCredentials: true,
 });
 
-// Debug events
-socket.on("connect", () => {
-  console.log("✅ Socket connected:", socket.id);
-});
-
-socket.on("disconnect", () => {
-  console.log("❌ Socket disconnected");
-});
-
-socket.on("connect_error", (err) => {
-  console.error("❌ Socket connect error:", err.message || err);
-});
+if (import.meta.env.DEV) {
+  socket.on("connect", () => console.log("✅ Socket connected:", socket.id));
+  socket.on("disconnect", () => console.log("❌ Socket disconnected"));
+  socket.on("connect_error", (err) => console.error("❌ Socket connect error:", err?.message || err));
+}
 
 export default socket;

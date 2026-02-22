@@ -30,15 +30,19 @@ const app = express();
 // ============================================
 // CORS Configuration
 // ============================================
-const allowedOrigins = [
-  "http://localhost:5173",
-  "http://localhost:3000",
-  "http://localhost:3001",
-  "https://whispr-nine.vercel.app",
-  process.env.FRONTEND_URL,
-].filter(Boolean);
+const allowedOrigins = process.env.ALLOWED_ORIGINS
+  ? process.env.ALLOWED_ORIGINS.split(",").map((o) => o.trim()).filter(Boolean)
+  : [
+      "http://localhost:5173",
+      "http://localhost:3000",
+      "http://localhost:3001",
+      "https://whispr-nine.vercel.app",
+      process.env.FRONTEND_URL,
+    ].filter(Boolean);
 
-console.log("✅ Allowed Origins:", allowedOrigins);
+if (process.env.NODE_ENV !== "production") {
+  console.log("✅ Allowed Origins:", allowedOrigins);
+}
 
 app.use(
   cors({
