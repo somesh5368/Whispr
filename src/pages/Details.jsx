@@ -10,10 +10,8 @@ import { BsEmojiSmile } from 'react-icons/bs';
 import { HiOutlinePhotograph } from 'react-icons/hi';
 import { FaTimes, FaArrowLeft } from 'react-icons/fa';
 import EmojiPicker from 'emoji-picker-react';
-import axios from 'axios';
+import API from '../utils/api';
 import socket from '../utils/socket';
-
-const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:5000';
 
 // ==================
 // UTILITY FUNCTIONS
@@ -73,7 +71,6 @@ const normalizeMessage = (msg) => ({
 const MessageBubble = ({
   message,
   isMe,
-  currentUserId,
   onDownload,
   senderName,
   senderAvatar,
@@ -88,14 +85,21 @@ const MessageBubble = ({
   );
 
   const statusIcon = (status) => {
+    if (status === 'failed') {
+      return (
+        <span className="text-xs text-red-200 font-medium inline-block ml-1 cursor-pointer" title="Failed to send. Tap to retry.">
+          ⚠️ Failed
+        </span>
+      );
+    }
     if (status === 'sent') {
       return (
-        <IoCheckmark className="text-11px text-gray-500 inline-block ml-1" />
+        <IoCheckmark className="text-11px text-gray-200 inline-block ml-1" />
       );
     }
     if (status === 'delivered') {
       return (
-        <IoCheckmarkDone className="text-11px text-gray-500 inline-block ml-1" />
+        <IoCheckmarkDone className="text-11px text-gray-200 inline-block ml-1" />
       );
     }
     if (status === 'read') {
@@ -244,15 +248,7 @@ function Details({
 
     const fetchMessages = async () => {
       try {
-        const { data } = await axios.get(
-          `${API_BASE}/api/messages/${otherId}`,
-          {
-            headers: {
-              Authorization: `Bearer ${token}`,
-            },
-          }
-        );
-
+        const { data } = await API.get(`/api/messages/${otherId}`);
         const serverMessages = data.messages || [];
         setMessages(serverMessages.map(normalizeMessage));
       } catch (err) {
@@ -308,6 +304,17 @@ function Details({
     });
 
     setMessages((prev) => [...prev, localMsg]);
+
+    // 8-second ack timer: mark message failed if server doesn't respond
+    setTimeout(() => {
+      setMessages((prev) =>
+        prev.map((m) =>
+          (m.id === tempId || m._id === tempId) && m.status === 'sent'
+            ? { ...m, status: 'failed' }
+            : m
+        )
+      );
+    }, 8000);
 
     sendMessage({ message: trimmed });
 
@@ -409,25 +416,15 @@ function Details({
           console.warn('Compression failed, sending original:', err);
         }
 
-        // postForm sets multipart/form-data with boundary correctly (field name "image" = multer.single("image"))
-        const res = await axios.postForm(
-          `${API_BASE}/api/messages/upload-image`,
-          { image: file, receiverId },
-          {
-            headers: {
-              Authorization: `Bearer ${token}`,
-            },
-          }
-        );
+        const res = await API.postForm('/api/messages/upload-image', {
+          image: file,
+          receiverId,
+        });
 
         const msgDoc = normalizeMessage(res.data.message || res.data);
         setMessages((prev) => [...prev, msgDoc]);
-
-        // Also emit via socket to keep real-time in sync
-        socket.emit('sendMessage', msgDoc);
       } catch (err) {
         console.error('Image upload failed:', err.response?.data || err.message);
-        alert(err.response?.data?.message || 'Image upload failed');
       } finally {
         setUploadingImage(false);
       }
@@ -493,8 +490,18 @@ function Details({
     };
   }, [currentUserId]);
 
-  // Delivered/read updates
+  // Delivered/read/sent ack updates
   useEffect(() => {
+    const sentAck = ({ clientId, messageId, status }) => {
+      setMessages((prev) =>
+        prev.map((msg) =>
+          msg.id === clientId || msg.clientId === clientId
+            ? { ...msg, id: messageId || msg.id, _id: messageId || msg._id, status: status || 'sent' }
+            : msg
+        )
+      );
+    };
+
     const delivered = (messageId) => {
       setMessages((prev) =>
         prev.map((msg) =>
@@ -511,10 +518,12 @@ function Details({
       );
     };
 
+    socket.on('messageSent', sentAck);
     socket.on('messageDelivered', delivered);
     socket.on('messageRead', read);
 
     return () => {
+      socket.off('messageSent', sentAck);
       socket.off('messageDelivered', delivered);
       socket.off('messageRead', read);
     };
@@ -728,7 +737,6 @@ function Details({
                 <MessageBubble
                   message={msg}
                   isMe={isMe}
-                  currentUserId={currentUserId}
                   onDownload={handleDownloadImage}
                   senderName={senderName}
                   senderAvatar={senderAvatar}

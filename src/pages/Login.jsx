@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
-import axios from 'axios';
 import { Link, useNavigate } from 'react-router-dom';
 import socket from '../utils/socket';
+import API from '../utils/api';
 
 const Login = () => {
   const navigate = useNavigate();
@@ -11,9 +11,6 @@ const Login = () => {
   const [success, setSuccess] = useState('');
   const [loading, setLoading] = useState(false);
 
-  const API_BASE_URL =
-    import.meta.env.VITE_API_URL || 'http://localhost:5000';
-
   const handleSubmit = async (e) => {
     e.preventDefault();
     setLoading(true);
@@ -21,11 +18,10 @@ const Login = () => {
     setSuccess('');
 
     try {
-      const res = await axios.post(
-        `${API_BASE_URL}/api/auth/login`,
-        { email: email.trim().toLowerCase(), password },
-        { withCredentials: true }
-      );
+      const res = await API.post('/api/auth/login', {
+        email: email.trim().toLowerCase(),
+        password,
+      });
 
       const payload = res.data?.data || res.data;
       const user = payload?.user;
@@ -47,11 +43,10 @@ const Login = () => {
 
       const userId = user.id || user._id;
       if (userId) {
-        if (socket.connected) {
-          socket.emit('join', { userId });
-        } else {
-          socket.once('connect', () => socket.emit('join', { userId }));
+        if (!socket.connected) {
+          socket.connect();
         }
+        socket.emit('join', { userId });
       }
 
       setSuccess('Login successful!');

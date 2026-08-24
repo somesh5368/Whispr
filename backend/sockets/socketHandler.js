@@ -1,16 +1,24 @@
 // backend/sockets/socketHandler.js
 const Message = require("../models/message");
+const DOMPurify = require("isomorphic-dompurify");
+const { socketAuthMiddleware } = require("../middleware/authMiddleware");
 
-const onlineUsers = new Set();
-const userSocketMap = new Map();
+// Map<userIdString, Set<socketId>> to support multi-tab connections
+const userSocketsMap = new Map();
 
 const socketHandler = (io) => {
+  // Enforce JWT handshake authentication for WebSockets
+  io.use(socketAuthMiddleware);
+
   io.on("connection", (socket) => {
-    console.log("New client connected:", socket.id);
+    console.log("New authenticated client connected:", socket.id, "User ID:", socket.userId);
+
+    // Track rate-limiting timestamps per socket (max 3 msgs / 1 sec)
+    socket.messageTimestamps = [];
 
     // ========== Join/Leave Events ==========
     socket.on("join", (data) => {
-      const userId = data && (typeof data === "object" ? data.userId : data);
+      const userId = socket.userId || (data && (typeof data === "object" ? data.userId : data));
       if (!userId) {
         console.warn("Join event: userId missing");
         return;
@@ -18,50 +26,79 @@ const socketHandler = (io) => {
 
       const userIdStr = userId.toString();
       socket.join(userIdStr);
-      userSocketMap.set(userIdStr, socket.id);
-      onlineUsers.add(userIdStr);
 
-      console.log(`User ${userIdStr} joined. Online users: ${onlineUsers.size}`);
+      if (!userSocketsMap.has(userIdStr)) {
+        userSocketsMap.set(userIdStr, new Set());
+      }
+      const userSockets = userSocketsMap.get(userIdStr);
+      const wasOffline = userSockets.size === 0;
+      userSockets.add(socket.id);
 
-      // Broadcast user online status
-      io.emit("userOnline", { userId: userIdStr });
+      console.log(`User ${userIdStr} joined on socket ${socket.id}. Active sockets for user: ${userSockets.size}`);
+
+      // Broadcast user online status only on first active socket
+      if (wasOffline) {
+        io.emit("userOnline", { userId: userIdStr });
+      }
     });
 
     socket.on("leave", (data) => {
-      const userId = data && (typeof data === "object" ? data.userId : data);
+      const userId = socket.userId || (data && (typeof data === "object" ? data.userId : data));
       if (!userId) return;
 
       const userIdStr = userId.toString();
       socket.leave(userIdStr);
-      userSocketMap.delete(userIdStr);
-      onlineUsers.delete(userIdStr);
 
-      console.log(`User ${userIdStr} left. Online users: ${onlineUsers.size}`);
-
-      io.emit("userOffline", { userId: userIdStr });
+      if (userSocketsMap.has(userIdStr)) {
+        const userSockets = userSocketsMap.get(userIdStr);
+        userSockets.delete(socket.id);
+        if (userSockets.size === 0) {
+          userSocketsMap.delete(userIdStr);
+          console.log(`User ${userIdStr} left all sessions. Marked offline.`);
+          io.emit("userOffline", { userId: userIdStr });
+        }
+      }
     });
 
     // ========== Message Events ==========
     socket.on("sendMessage", async (data) => {
       try {
-        const { senderId, receiverId, message, image, timestamp, clientId } =
-          data;
+        const senderId = socket.userId || data.senderId;
+        const { receiverId, message, image, timestamp, clientId } = data;
 
         if (!senderId || !receiverId) {
           console.warn("sendMessage: Missing senderId or receiverId");
           return;
         }
 
-        // Create message in database (backend should handle via HTTP for better reliability)
+        // Per-socket rate throttling (max 3 messages per 1 second window)
+        const now = Date.now();
+        socket.messageTimestamps = (socket.messageTimestamps || []).filter(
+          (ts) => now - ts < 1000
+        );
+
+        if (socket.messageTimestamps.length >= 3) {
+          console.warn(`Socket ${socket.id} rate limit exceeded for sendMessage`);
+          socket.emit("error", { message: "Rate limit exceeded. Slow down your messages." });
+          return;
+        }
+        socket.messageTimestamps.push(now);
+
+        // Sanitize message content against XSS
+        const sanitizedMessage = message ? DOMPurify.sanitize(message) : "";
+
+        // Create message in database first, then populate asynchronously
         const newMsg = await Message.create({
           sender: senderId,
           receiver: receiverId,
-          message,
+          message: sanitizedMessage,
           image: image || null,
           status: "sent",
           timestamp: timestamp || Date.now(),
           clientId,
-        }).populate("sender", ["name", "email", "avatar"]);
+        });
+
+        await newMsg.populate("sender", "name email avatar");
 
         // Send to receiver
         const receiverIdStr = receiverId.toString();
@@ -101,7 +138,7 @@ const socketHandler = (io) => {
           { new: true }
         );
 
-        if (msg) {
+        if (msg && senderId) {
           const senderIdStr = senderId.toString();
           io.to(senderIdStr).emit("messageDelivered", {
             messageId,
@@ -123,7 +160,7 @@ const socketHandler = (io) => {
           { new: true }
         );
 
-        if (msg) {
+        if (msg && senderId) {
           const senderIdStr = senderId.toString();
           io.to(senderIdStr).emit("messageRead", {
             messageId,
@@ -151,13 +188,16 @@ const socketHandler = (io) => {
     socket.on("disconnect", () => {
       console.log("Client disconnected:", socket.id);
 
-      // Remove user from online list
-      for (const [userId, socketId] of userSocketMap.entries()) {
-        if (socketId === socket.id) {
-          onlineUsers.delete(userId);
-          userSocketMap.delete(userId);
-          io.emit("userOffline", { userId });
-          console.log(`User ${userId} went offline`);
+      for (const [userId, sockets] of userSocketsMap.entries()) {
+        if (sockets.has(socket.id)) {
+          sockets.delete(socket.id);
+          if (sockets.size === 0) {
+            userSocketsMap.delete(userId);
+            io.emit("userOffline", { userId });
+            console.log(`User ${userId} went offline (all tabs closed)`);
+          } else {
+            console.log(`User ${userId} tab closed. Remaining active sockets: ${sockets.size}`);
+          }
           break;
         }
       }
@@ -166,3 +206,4 @@ const socketHandler = (io) => {
 };
 
 module.exports = socketHandler;
+

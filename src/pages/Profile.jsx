@@ -1,15 +1,14 @@
 import React, { useState, useEffect } from 'react';
-import axios from 'axios';
+import API from '../utils/api';
 
 const DEFAULT_AVATAR =
   'https://cdn-icons-png.flaticon.com/512/3177/3177440.png';
 const DEFAULT_BIO = "Hey there! I am using Whispr.";
 
-const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:5000';
-
-const Profile = ({ onClose }) => {
+const Profile = () => {
   const token = JSON.parse(localStorage.getItem('user'))?.token;
   const [profile, setProfile] = useState(null);
+  const [statusMsg, setStatusMsg] = useState(null);
   const [form, setForm] = useState({
     name: '',
     bio: '',
@@ -23,10 +22,8 @@ const Profile = ({ onClose }) => {
 
   useEffect(() => {
     if (!token) return;
-    axios
-      .get(`${API_BASE}/api/auth/me`, {
-        headers: { Authorization: `Bearer ${token}` },
-      })
+    API
+      .get('/api/users/me')
       .then((res) => {
         const user = res.data?.data?.user || res.data.user || res.data;
         setProfile(user);
@@ -46,11 +43,7 @@ const Profile = ({ onClose }) => {
   const handleSave = async () => {
     try {
       const { name, bio, phone } = form;
-      const res = await axios.put(
-        `${API_BASE}/api/auth/profile`,
-        { name, bio, phone },
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
+      const res = await API.put('/api/users/profile', { name, bio, phone });
       const user = res.data?.data?.user || res.data.user || res.data;
       setProfile(user);
       setForm((prev) => ({
@@ -77,8 +70,10 @@ const Profile = ({ onClose }) => {
         }));
       }
       setEditMode(false);
+      setStatusMsg({ type: 'success', text: 'Profile updated successfully!' });
+      setTimeout(() => setStatusMsg(null), 3000);
     } catch {
-      alert('Profile update failed');
+      setStatusMsg({ type: 'error', text: 'Profile update failed. Please try again.' });
     }
   };
 
@@ -90,11 +85,9 @@ const Profile = ({ onClose }) => {
       setUploading(true);
       const formData = new FormData();
       formData.append('avatar', file);
-      const res = await axios.put(
-        `${API_BASE}/api/auth/profile-photo`,
-        formData,
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
+      const res = await API.put('/api/users/profile-photo', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      });
       const user = res.data?.data?.user || res.data.user || res.data;
       setProfile(user);
       setForm((prev) => ({ ...prev, img: user.avatar || prev.img }));
@@ -116,9 +109,11 @@ const Profile = ({ onClose }) => {
           },
         }));
       }
+      setStatusMsg({ type: 'success', text: 'Photo updated successfully!' });
+      setTimeout(() => setStatusMsg(null), 3000);
     } catch (err) {
       console.error('Photo upload error:', err?.response?.data || err.message);
-      alert('Photo upload failed');
+      setStatusMsg({ type: 'error', text: err?.response?.data?.message || 'Photo upload failed.' });
     } finally {
       setUploading(false);
     }
@@ -136,6 +131,17 @@ const Profile = ({ onClose }) => {
 
   return (
     <div className="p-6 overflow-y-auto">
+      {statusMsg && (
+        <div
+          className={`mb-4 px-4 py-2.5 rounded-lg text-xs font-medium ${
+            statusMsg.type === 'success'
+              ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+              : 'bg-red-50 text-red-700 border border-red-200'
+          }`}
+        >
+          {statusMsg.text}
+        </div>
+      )}
       <div className="flex flex-col items-center gap-4 mb-6">
         <img
           src={avatar}

@@ -46,4 +46,29 @@ const protect = async (req, res, next) => {
   }
 };
 
-module.exports = { protect };
+// ============================================
+// Socket Authentication Middleware
+// ============================================
+const socketAuthMiddleware = async (socket, next) => {
+  try {
+    const token =
+      socket.handshake.auth?.token ||
+      (socket.handshake.headers?.authorization &&
+        socket.handshake.headers.authorization.split(" ")[1]) ||
+      socket.handshake.query?.token;
+
+    if (!token) {
+      return next(new Error("Authentication error: Token required"));
+    }
+
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    socket.userId = decoded.id;
+    socket.user = decoded;
+    next();
+  } catch (err) {
+    console.error("❌ Socket auth error:", err.message);
+    return next(new Error("Authentication error: Invalid or expired token"));
+  }
+};
+
+module.exports = { protect, socketAuthMiddleware };

@@ -32,9 +32,17 @@ const messageSchema = new mongoose.Schema(
       type: String,
       default: null,
     },
+    isDeleted: {
+      type: Boolean,
+      default: false,
+    },
   },
   { timestamps: true }
 );
+
+// Compound indexes for fast query performance
+messageSchema.index({ sender: 1, receiver: 1, isDeleted: 1, createdAt: -1 });
+messageSchema.index({ receiver: 1, status: 1, isDeleted: 1 });
 
 // ✅ fix OverwriteModelError with nodemon
 const Message =

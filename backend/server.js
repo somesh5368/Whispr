@@ -25,7 +25,25 @@ console.log(
 // Connect to MongoDB
 connectDB();
 
+const helmet = require("helmet");
+const rateLimit = require("express-rate-limit");
+
 const app = express();
+
+// Security Headers
+app.use(helmet({ contentSecurityPolicy: false }));
+
+// Rate limiter for Auth routes (15 requests per 15 minutes)
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 15,
+  message: {
+    success: false,
+    message: "Too many requests from this IP, please try again after 15 minutes.",
+  },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
 
 // ============================================
 // CORS Configuration
@@ -58,22 +76,26 @@ app.use(
 app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ limit: "50mb", extended: true }));
 
-// ============================================
-// REST API Routes
-// ============================================
+// Apply rate limiter to sensitive auth endpoints
+app.use("/api/auth/login", authLimiter);
+app.use("/api/auth/register", authLimiter);
+
 app.use("/api/auth", authRoutes);
 app.use("/api/messages", messageRoutes);
 app.use("/api/users", userRoutes);
 
-// Health check endpoint
-app.get("/", (req, res) => {
-  res.json({
-    message: "Whispr backend is running!",
+// Health check endpoints
+const handleHealthCheck = (req, res) => {
+  res.status(200).json({
     status: "OK",
+    message: "Whispr backend is running!",
     timestamp: new Date().toISOString(),
     environment: process.env.NODE_ENV || "development",
   });
-});
+};
+
+app.get("/", handleHealthCheck);
+app.get("/health", handleHealthCheck);
 
 // ============================================
 // Socket.IO Setup
@@ -93,6 +115,9 @@ const io = new Server(server, {
   reconnectionDelayMax: 5000,
   reconnectionAttempts: 5,
 });
+
+// Attach io instance to app
+app.set("io", io);
 
 // Socket handlers
 socketHandler(io);
@@ -129,21 +154,25 @@ server.listen(PORT, () => {
 });
 
 // Graceful Shutdown
-process.on("SIGTERM", () => {
-  console.log("SIGTERM received, shutting down gracefully");
-  server.close(() => {
-    console.log("Server closed");
-    process.exit(0);
-  });
-});
+const mongoose = require("mongoose");
 
-process.on("SIGINT", () => {
-  console.log("SIGINT received, shutting down gracefully");
-  server.close(() => {
-    console.log("Server closed");
+const gracefulShutdown = (signal) => {
+  console.log(`${signal} received, shutting down gracefully...`);
+  io.close(() => console.log("Socket.IO connections closed"));
+  server.close(async () => {
+    console.log("HTTP server closed");
+    try {
+      await mongoose.connection.close();
+      console.log("MongoDB connection closed");
+    } catch (err) {
+      console.error("Error closing MongoDB connection:", err.message);
+    }
     process.exit(0);
   });
-});
+};
+
+process.on("SIGTERM", () => gracefulShutdown("SIGTERM"));
+process.on("SIGINT", () => gracefulShutdown("SIGINT"));
 
 // Error handling
 process.on("unhandledRejection", (err) => {
