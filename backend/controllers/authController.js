@@ -359,8 +359,9 @@ exports.searchUsers = async (req, res) => {
       });
     }
 
-    // Create case-insensitive regex
-    const regex = new RegExp(q.trim(), "i");
+    // Escape regex special characters to prevent ReDoS attacks
+    const sanitized = q.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const regex = new RegExp(sanitized, "i");
 
     // Search query
     const query = {

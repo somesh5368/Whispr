@@ -16,23 +16,14 @@ const {
 const { protect } = require("../middleware/authMiddleware");
 const upload = require("../middleware/uploadMiddleware");
 
-// Public routes
+// Authentication routes
 router.post("/register", registerUser);
 router.post("/login", loginUser);
 
-// Protected routes
+// Legacy aliases (canonical routes are under /api/users)
 router.get("/me", protect, getMe);
 router.put("/profile", protect, updateProfile);
-
-// Profile photo upload (expects field name "avatar")
-router.put(
-  "/profile-photo",
-  protect,
-  upload.single("avatar"),
-  updateProfilePhoto
-);
-
-// Search routes
+router.put("/profile-photo", protect, upload.single("avatar"), updateProfilePhoto);
 router.get("/search", protect, searchUsers);
 router.get("/users/:userId", protect, getAllUsers);
 

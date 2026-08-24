@@ -11,7 +11,21 @@ if (import.meta.env.DEV) {
   console.log("🔌 Connecting socket to:", SOCKET_URL);
 }
 
+const getToken = () => {
+  try {
+    const raw = localStorage.getItem("user");
+    if (!raw) return null;
+    const data = JSON.parse(raw);
+    return data?.token || data?.user?.token || null;
+  } catch {
+    return null;
+  }
+};
+
 const socket = io(SOCKET_URL, {
+  auth: (cb) => {
+    cb({ token: getToken() });
+  },
   reconnection: true,
   reconnectionDelay: 1000,
   reconnectionDelayMax: 5000,

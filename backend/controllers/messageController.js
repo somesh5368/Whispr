@@ -1,7 +1,9 @@
 // backend/controllers/messageController.js
+const mongoose = require("mongoose");
 const Message = require("../models/message");
 const User = require("../models/user");
 const { cloudinary } = require("../config/cloudinary");
+const DOMPurify = require("isomorphic-dompurify");
 
 // ============================================
 // Get recent contacts for sidebar
@@ -9,49 +11,79 @@ const { cloudinary } = require("../config/cloudinary");
 // ============================================
 const getRecentContacts = async (req, res) => {
   try {
-    const userId = req.user.id; // current user
+    const currentUserId = new mongoose.Types.ObjectId(req.user.id);
 
-    const messages = await Message.find({
-      $or: [{ sender: userId }, { receiver: userId }],
-    })
-      .sort({ createdAt: -1 }) // latest first
-      .populate("sender", "name email avatar")
-      .populate("receiver", "name email avatar");
-
-    const contactMap = new Map(); // group by contact
-
-    messages.forEach((msg) => {
-      const contact =
-        msg.sender._id.toString() === userId ? msg.receiver : msg.sender;
-      const contactId = contact._id.toString();
-
-      if (!contactMap.has(contactId)) {
-        contactMap.set(contactId, {
-          _id: contact._id,
-          name: contact.name,
-          email: contact.email,
-          avatar: contact.avatar,
-          lastMessage: msg.message || "[Image]",
-          lastMessageAt: msg.createdAt,
-          unreadCount: 0,
-        });
-      }
-
-      if (
-        msg.receiver._id.toString() === userId &&
-        msg.status !== "read"
-      ) {
-        contactMap.get(contactId).unreadCount += 1;
-      }
-    });
-
-    const recentContacts = Array.from(contactMap.values()).sort(
-      (a, b) => new Date(b.lastMessageAt) - new Date(a.lastMessageAt)
-    );
+    const contacts = await Message.aggregate([
+      {
+        $match: {
+          isDeleted: { $ne: true },
+          $or: [{ sender: currentUserId }, { receiver: currentUserId }],
+        },
+      },
+      { $sort: { createdAt: -1 } },
+      {
+        $project: {
+          contactId: {
+            $cond: {
+              if: { $eq: ["$sender", currentUserId] },
+              then: "$receiver",
+              else: "$sender",
+            },
+          },
+          message: 1,
+          image: 1,
+          status: 1,
+          receiver: 1,
+          createdAt: 1,
+        },
+      },
+      {
+        $group: {
+          _id: "$contactId",
+          lastMessage: { $first: { $ifNull: ["$message", "[Image]"] } },
+          lastMessageAt: { $first: "$createdAt" },
+          unreadCount: {
+            $sum: {
+              $cond: [
+                {
+                  $and: [
+                    { $eq: ["$receiver", currentUserId] },
+                    { $ne: ["$status", "read"] },
+                  ],
+                },
+                1,
+                0,
+              ],
+            },
+          },
+        },
+      },
+      {
+        $lookup: {
+          from: "users",
+          localField: "_id",
+          foreignField: "_id",
+          as: "contactInfo",
+        },
+      },
+      { $unwind: "$contactInfo" },
+      {
+        $project: {
+          _id: "$contactInfo._id",
+          name: "$contactInfo.name",
+          email: "$contactInfo.email",
+          avatar: "$contactInfo.avatar",
+          lastMessage: 1,
+          lastMessageAt: 1,
+          unreadCount: 1,
+        },
+      },
+      { $sort: { lastMessageAt: -1 } },
+    ]);
 
     res.json({
       success: true,
-      contacts: recentContacts,
+      contacts,
     });
   } catch (error) {
     console.error("getRecentContacts error:", error);
@@ -64,30 +96,48 @@ const getRecentContacts = async (req, res) => {
 };
 
 // ============================================
-// Get messages between two users
-// GET /api/messages/:userId
+// Get messages between two users (Cursor Paginated)
+// GET /api/messages/:userId?limit=30&before=timestamp
 // ============================================
 const getMessages = async (req, res) => {
   try {
     const { userId } = req.params; // other user
     const currentUserId = req.user.id; // current user
+    const { limit = 30, before } = req.query;
 
-    const messages = await Message.find({
+    if (!userId) {
+      return res.status(400).json({ success: false, message: "User ID is required" });
+    }
+
+    const query = {
+      isDeleted: { $ne: true },
       $or: [
         { sender: currentUserId, receiver: userId },
         { sender: userId, receiver: currentUserId },
       ],
-    })
-      .sort({ createdAt: 1 }) // oldest first
+    };
+
+    if (before) {
+      query.createdAt = { $lt: new Date(before) };
+    }
+
+    const parsedLimit = Math.min(Math.max(parseInt(limit, 10) || 30, 1), 100);
+
+    const rawMessages = await Message.find(query)
+      .sort({ createdAt: -1 })
+      .limit(parsedLimit)
       .populate("sender", "name email avatar")
       .populate("receiver", "name email avatar");
 
-    // mark all messages from other user as read
+    const messages = rawMessages.reverse();
+
+    // mark all unread messages from other user as read
     await Message.updateMany(
       {
         sender: userId,
         receiver: currentUserId,
         status: { $ne: "read" },
+        isDeleted: { $ne: true },
       },
       { status: "read" }
     );
@@ -95,6 +145,7 @@ const getMessages = async (req, res) => {
     res.json({
       success: true,
       messages,
+      hasMore: rawMessages.length === parsedLimit,
     });
   } catch (error) {
     console.error("getMessages error:", error);
@@ -123,10 +174,13 @@ const sendMessage = async (req, res) => {
       });
     }
 
+    // Sanitize message content against XSS
+    const sanitizedMessage = message ? DOMPurify.sanitize(message) : "[Image]";
+
     const newMsg = await Message.create({
       sender: senderId,
       receiver: receiverId,
-      message: message || "[Image]",
+      message: sanitizedMessage,
       image: image || null,
       status: "sent",
     });
@@ -250,6 +304,16 @@ const uploadMessageImage = async (req, res) => {
           await msgDoc.populate("sender", "name email avatar");
           await msgDoc.populate("receiver", "name email avatar");
 
+          // Broadcast via Socket server to recipient and update contact lists
+          const io = req.app.get("io");
+          if (io) {
+            const receiverIdStr = receiverId.toString();
+            const senderIdStr = senderId.toString();
+            io.to(receiverIdStr).emit("receiveMessage", msgDoc.toObject());
+            io.to(receiverIdStr).emit("updateRecentContacts");
+            io.to(senderIdStr).emit("updateRecentContacts");
+          }
+
           res.status(201).json({
             success: true,
             message: msgDoc,
@@ -310,8 +374,17 @@ const updateMessageStatus = async (req, res) => {
       });
     }
 
-    // Optionally: only receiver can mark as delivered/read
-    // if (message.receiver.toString() !== req.user.id) { ... }
+    // IDOR Check: Ensure current user is sender or receiver
+    const currentUserIdStr = req.user.id.toString();
+    if (
+      message.sender.toString() !== currentUserIdStr &&
+      message.receiver.toString() !== currentUserIdStr
+    ) {
+      return res.status(403).json({
+        success: false,
+        message: "Not authorized to update status of this message",
+      });
+    }
 
     message.status = status;
     await message.save();
@@ -365,7 +438,8 @@ const deleteMessage = async (req, res) => {
       }
     }
 
-    await Message.findByIdAndDelete(messageId);
+    message.isDeleted = true;
+    await message.save();
 
     res.json({
       success: true,
