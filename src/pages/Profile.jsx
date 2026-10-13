@@ -1,12 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import API from '../utils/api';
+import { useAuth } from '../context/AuthContext';
 
 const DEFAULT_AVATAR =
   'https://cdn-icons-png.flaticon.com/512/3177/3177440.png';
 const DEFAULT_BIO = "Hey there! I am using Whispr.";
 
 const Profile = () => {
-  const token = JSON.parse(localStorage.getItem('user'))?.token;
+  const { token, updateUser } = useAuth();
   const [profile, setProfile] = useState(null);
   const [statusMsg, setStatusMsg] = useState(null);
   const [form, setForm] = useState({
@@ -53,22 +54,7 @@ const Profile = () => {
         phone: user.phone || '',
         img: user.avatar || prev.img,
       }));
-      const stored = localStorage.getItem('user');
-      if (stored) {
-        const parsed = JSON.parse(stored);
-        localStorage.setItem('user', JSON.stringify({
-          ...parsed,
-          user: {
-            ...(parsed.user || {}),
-            id: user.id || user._id,
-            name: user.name,
-            email: user.email,
-            avatar: user.avatar,
-            bio: user.bio,
-            phone: user.phone,
-          },
-        }));
-      }
+      updateUser(user);
       setEditMode(false);
       setStatusMsg({ type: 'success', text: 'Profile updated successfully!' });
       setTimeout(() => setStatusMsg(null), 3000);
@@ -93,22 +79,7 @@ const Profile = () => {
       setForm((prev) => ({ ...prev, img: user.avatar || prev.img }));
       setFile(null);
       if (fileInputRef.current) fileInputRef.current.value = '';
-      const stored = localStorage.getItem('user');
-      if (stored) {
-        const parsed = JSON.parse(stored);
-        localStorage.setItem('user', JSON.stringify({
-          ...parsed,
-          user: {
-            ...(parsed.user || {}),
-            id: user.id || user._id,
-            name: user.name,
-            email: user.email,
-            avatar: user.avatar,
-            bio: user.bio,
-            phone: user.phone,
-          },
-        }));
-      }
+      updateUser(user);
       setStatusMsg({ type: 'success', text: 'Photo updated successfully!' });
       setTimeout(() => setStatusMsg(null), 3000);
     } catch (err) {

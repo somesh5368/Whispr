@@ -1,5 +1,6 @@
 // src/utils/api.js
 import axios from 'axios';
+import { getStoredToken } from './authStorage';
 
 // ✅ Proper API configuration
 const API_BASE_URL =
@@ -17,14 +18,10 @@ export const API = axios.create({
 // Request interceptor
 API.interceptors.request.use(
   (config) => {
-    try {
-      const raw = localStorage.getItem('user');
-      if (raw) {
-        const data = JSON.parse(raw);
-        const token = data?.token ?? data?.user?.token;
-        if (token) config.headers.Authorization = `Bearer ${token}`;
-      }
-    } catch (_) {}
+    const token = getStoredToken();
+    if (token) {
+      config.headers.Authorization = `Bearer ${token}`;
+    }
     return config;
   },
   (error) => {

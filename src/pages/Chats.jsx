@@ -2,18 +2,10 @@ import React, { useEffect, useMemo, useState, useCallback } from 'react';
 import { FaSearch, FaTimes } from 'react-icons/fa';
 import socket from '../utils/socket';
 import API from '../utils/api';
-
-const getUser = () => {
-  try {
-    const data = localStorage.getItem('user');
-    return data ? JSON.parse(data) : null;
-  } catch {
-    return null;
-  }
-};
+import { useAuth } from '../context/AuthContext';
 
 function Chats({ onSelectContact, selectedContact, isMobile = false }) {
-  const currentUser = useMemo(() => getUser(), []);
+  const { user: authUser, token } = useAuth();
   const [recentContacts, setRecentContacts] = useState([]);
   const [loading, setLoading] = useState(false);
   const [onlineUsers, setOnlineUsers] = useState(new Set());
@@ -23,13 +15,13 @@ function Chats({ onSelectContact, selectedContact, isMobile = false }) {
   const [showSearchResults, setShowSearchResults] = useState(false);
 
   const authHeaders = useMemo(
-    () => (currentUser?.token ? { Authorization: `Bearer ${currentUser.token}` } : {}),
-    [currentUser?.token]
+    () => (token ? { Authorization: `Bearer ${token}` } : {}),
+    [token]
   );
-  const currentUserName = currentUser?.user?.name || currentUser?.name || currentUser?.email || 'User';
+  const currentUserName = authUser?.name || authUser?.email || 'User';
 
   const fetchRecentContacts = useCallback(async () => {
-    if (!currentUser?.token) return;
+    if (!token) return;
     try {
       setLoading(true);
       const res = await API.get('/api/messages/recent', { headers: authHeaders });
@@ -45,7 +37,7 @@ function Chats({ onSelectContact, selectedContact, isMobile = false }) {
     } finally {
       setLoading(false);
     }
-  }, [authHeaders, currentUser?.token]);
+  }, [authHeaders, token]);
 
   useEffect(() => {
     fetchRecentContacts();
@@ -89,7 +81,7 @@ function Chats({ onSelectContact, selectedContact, isMobile = false }) {
   const handleOpenChat = useCallback(
     async (user) => {
       const id = user.id || user._id || user.userId;
-      if (id && currentUser?.token) {
+      if (id && token) {
         try {
           await API.patch(`/api/messages/${id}/read`, {}, { headers: authHeaders });
           fetchRecentContacts();
@@ -108,12 +100,12 @@ function Chats({ onSelectContact, selectedContact, isMobile = false }) {
         isOnline: id ? onlineUsers.has(String(id)) : false,
       });
     },
-    [authHeaders, currentUser?.token, fetchRecentContacts, onSelectContact, onlineUsers]
+    [authHeaders, token, fetchRecentContacts, onSelectContact, onlineUsers]
   );
 
   const searchUsers = useCallback(
     async (q) => {
-      if (!currentUser?.token) return;
+      if (!token) return;
       try {
         setSearchLoading(true);
         const res = await API.get('/api/users/search', { params: { q }, headers: authHeaders });
@@ -128,7 +120,7 @@ function Chats({ onSelectContact, selectedContact, isMobile = false }) {
         setSearchLoading(false);
       }
     },
-    [authHeaders, currentUser?.token]
+    [authHeaders, token]
   );
 
   const handleSearchChange = useCallback(
@@ -161,7 +153,7 @@ function Chats({ onSelectContact, selectedContact, isMobile = false }) {
     setShowSearchResults(false);
   }, []);
 
-  if (!currentUser || !currentUser.token) return null;
+  if (!token) return null;
 
   const displayContacts =
     showSearchResults && searchQuery.trim().length > 0 ? searchResults : recentContacts;

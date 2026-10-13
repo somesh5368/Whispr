@@ -8,10 +8,11 @@ import {
 import { IoIosSend } from 'react-icons/io';
 import { BsEmojiSmile } from 'react-icons/bs';
 import { HiOutlinePhotograph } from 'react-icons/hi';
-import { FaTimes, FaArrowLeft } from 'react-icons/fa';
+import { FaTimes, FaArrowLeft, FaTrash } from 'react-icons/fa';
 import EmojiPicker from 'emoji-picker-react';
 import API from '../utils/api';
 import socket from '../utils/socket';
+import { useAuth } from '../context/AuthContext';
 
 // ==================
 // UTILITY FUNCTIONS
@@ -72,6 +73,7 @@ const MessageBubble = ({
   message,
   isMe,
   onDownload,
+  onDelete,
   senderName,
   senderAvatar,
 }) => {
@@ -171,6 +173,20 @@ const MessageBubble = ({
           >
             <span>{time}</span>
             {isMe && statusIcon(message.status)}
+            {isMe && onDelete && (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onDelete(message);
+                }}
+                className="opacity-70 hover:opacity-100 hover:text-red-200 transition ml-1 p-0.5"
+                title="Delete message"
+                aria-label="Delete message"
+              >
+                <FaTrash size={10} />
+              </button>
+            )}
           </div>
         </div>
       </div>
@@ -192,36 +208,31 @@ function Details({
   // STATE
   // ==================
 
+  const { user: authUser, token } = useAuth();
+  const currentUserId = authUser?.id || authUser?._id;
+
   const [message, setMessage] = useState('');
   const [messages, setMessages] = useState([]);
+  const [hasMore, setHasMore] = useState(true);
+  const [loadingOlder, setLoadingOlder] = useState(false);
+  const [initialLoading, setInitialLoading] = useState(true);
+  const [messageToDelete, setMessageToDelete] = useState(null);
+  const [isDeleting, setIsDeleting] = useState(false);
   const [isTyping, setIsTyping] = useState(false);
   const [isOnline, setIsOnline] = useState(false);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [uploadingImage, setUploadingImage] = useState(false);
   const [showSearch, setShowSearch] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
-  const [showClearConfirm, setShowClearConfirm] = useState(false);
 
   // Refs
-  const scrollRef = useRef(null);
+  const messagesContainerRef = useRef(null);
+  const isNearBottomRef = useRef(true);
+  const isInitialLoadRef = useRef(true);
   const typingTimeoutRef = useRef(null);
   const fileInputRef = useRef(null);
   const inputRef = useRef(null);
   const messageRefs = useRef({});
-
-  // User data
-  const storedUser = (() => {
-    try {
-      const data = localStorage.getItem('user');
-      return data ? JSON.parse(data) : null;
-    } catch {
-      return null;
-    }
-  })();
-
-  const currentUser = storedUser?.user || storedUser;
-  const currentUserId = currentUser?.id || currentUser?._id;
-  const token = storedUser?.token;
 
   // ==================
   // SOCKET & DATA LOADING
@@ -238,7 +249,7 @@ function Details({
     };
   }, [currentUserId]);
 
-  // Fetch messages with selected user
+  // Fetch initial messages with selected user
   useEffect(() => {
     if (!user || (!user?.id && !user?._id)) return;
     if (!currentUserId || !token) return;
@@ -246,19 +257,45 @@ function Details({
     const otherId = user.id || user._id;
     if (!otherId) return;
 
+    let isMounted = true;
+    isInitialLoadRef.current = true;
+    setHasMore(true);
+    setLoadingOlder(false);
+    setInitialLoading(true);
+
     const fetchMessages = async () => {
       try {
-        const { data } = await API.get(`/api/messages/${otherId}`);
-        const serverMessages = data.messages || [];
-        setMessages(serverMessages.map(normalizeMessage));
+        const { data } = await API.get(`/api/messages/${otherId}?limit=30`);
+        if (!isMounted) return;
+        const serverMessages = (data.messages || []).map(normalizeMessage);
+        setMessages(serverMessages);
+        setHasMore(data.hasMore !== undefined ? data.hasMore : serverMessages.length === 30);
       } catch (err) {
+        if (!isMounted) return;
         console.error('Failed to fetch messages:', err);
         setMessages([]);
+        setHasMore(false);
+      } finally {
+        if (isMounted) setInitialLoading(false);
       }
     };
 
     fetchMessages();
+
+    return () => {
+      isMounted = false;
+    };
   }, [user, currentUserId, token]);
+
+  // Scroll to bottom when initial messages load
+  useEffect(() => {
+    if (isInitialLoadRef.current && messages.length > 0) {
+      if (messagesContainerRef.current) {
+        messagesContainerRef.current.scrollTop = messagesContainerRef.current.scrollHeight;
+        isInitialLoadRef.current = false;
+      }
+    }
+  }, [messages]);
 
   // ==================
   // MESSAGE SENDING
@@ -304,6 +341,11 @@ function Details({
     });
 
     setMessages((prev) => [...prev, localMsg]);
+    requestAnimationFrame(() => {
+      if (messagesContainerRef.current) {
+        messagesContainerRef.current.scrollTop = messagesContainerRef.current.scrollHeight;
+      }
+    });
 
     // 8-second ack timer: mark message failed if server doesn't respond
     setTimeout(() => {
@@ -423,6 +465,11 @@ function Details({
 
         const msgDoc = normalizeMessage(res.data.message || res.data);
         setMessages((prev) => [...prev, msgDoc]);
+        requestAnimationFrame(() => {
+          if (messagesContainerRef.current) {
+            messagesContainerRef.current.scrollTop = messagesContainerRef.current.scrollHeight;
+          }
+        });
       } catch (err) {
         console.error('Image upload failed:', err.response?.data || err.message);
       } finally {
@@ -466,6 +513,14 @@ function Details({
         // Otherwise append as new
         return [...prev, normalized];
       });
+
+      if (isNearBottomRef.current) {
+        requestAnimationFrame(() => {
+          if (messagesContainerRef.current) {
+            messagesContainerRef.current.scrollTop = messagesContainerRef.current.scrollHeight;
+          }
+        });
+      }
 
       // Only receiver sends delivery/read receipts
       if (normalized.receiverId?.toString() === currentUserId?.toString()) {
@@ -608,13 +663,91 @@ function Details({
     };
   }, [user]);
 
-  // ==================
-  // SCROLL TO BOTTOM
-  // ==================
+  // Fetch older messages on scroll near top
+  const loadOlderMessages = useCallback(async () => {
+    if (loadingOlder || !hasMore || messages.length === 0) return;
+    const container = messagesContainerRef.current;
+    if (!container) return;
 
-  useEffect(() => {
-    scrollRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
+    const otherId = user?.id || user?._id;
+    if (!otherId) return;
+
+    const oldestMsg = messages[0];
+    const cursor = oldestMsg?.createdAt || oldestMsg?.timestamp;
+    if (!cursor) return;
+
+    setLoadingOlder(true);
+    const prevScrollHeight = container.scrollHeight;
+    const prevScrollTop = container.scrollTop;
+
+    try {
+      const { data } = await API.get(
+        `/api/messages/${otherId}?limit=30&before=${encodeURIComponent(new Date(cursor).toISOString())}`
+      );
+      const olderMessages = (data.messages || []).map(normalizeMessage);
+
+      if (olderMessages.length < 30 || data.hasMore === false) {
+        setHasMore(false);
+      }
+
+      if (olderMessages.length > 0) {
+        setMessages((prev) => {
+          const existingIds = new Set(prev.map((m) => m.id || m._id));
+          const filteredOlder = olderMessages.filter((m) => !existingIds.has(m.id || m._id));
+          return [...filteredOlder, ...prev];
+        });
+
+        requestAnimationFrame(() => {
+          if (messagesContainerRef.current) {
+            const newScrollHeight = messagesContainerRef.current.scrollHeight;
+            messagesContainerRef.current.scrollTop = newScrollHeight - prevScrollHeight + prevScrollTop;
+          }
+        });
+      }
+    } catch (err) {
+      console.error('Failed to load older messages:', err);
+    } finally {
+      setLoadingOlder(false);
+    }
+  }, [loadingOlder, hasMore, messages, user]);
+
+  const handleScroll = useCallback(() => {
+    const container = messagesContainerRef.current;
+    if (!container) return;
+
+    const distanceFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
+    isNearBottomRef.current = distanceFromBottom < 100;
+
+    if (container.scrollTop < 60 && hasMore && !loadingOlder && messages.length > 0) {
+      loadOlderMessages();
+    }
+  }, [hasMore, loadingOlder, messages.length, loadOlderMessages]);
+
+  const handleDeleteClick = useCallback((msg) => {
+    setMessageToDelete(msg);
+  }, []);
+
+  const handleConfirmDelete = useCallback(async () => {
+    if (!messageToDelete) return;
+    const targetId = messageToDelete.id || messageToDelete._id;
+    const previousMessages = [...messages];
+
+    // Optimistic UI update
+    setMessages((prev) => prev.filter((m) => (m.id || m._id) !== targetId));
+    setMessageToDelete(null);
+    setIsDeleting(true);
+
+    try {
+      await API.delete(`/api/messages/${targetId}`);
+    } catch (err) {
+      console.error('Failed to delete message:', err);
+      // Rollback on failure
+      setMessages(previousMessages);
+      alert(err.response?.data?.message || 'Failed to delete message. Please try again.');
+    } finally {
+      setIsDeleting(false);
+    }
+  }, [messageToDelete, messages]);
 
   // ==================
   // KEYBOARD & SEARCH
@@ -710,14 +843,6 @@ function Details({
             >
               🔍
             </button>
-            <button
-              type="button"
-              onClick={() => setShowClearConfirm(true)}
-              className="p-2.5 rounded-lg text-ws-text-muted hover:text-red-600 hover:bg-red-50 transition"
-              title="Clear chat"
-            >
-              🗑️
-            </button>
           </div>
         </div>
       </div>
@@ -726,11 +851,26 @@ function Details({
       {/* MESSAGES AREA */}
       {/* ==================== */}
 
-      <div className="flex-1 overflow-y-auto px-4 sm:px-6 py-4 space-y-4 bg-gradient-to-b from-slate-50 to-white">
+      <div
+        ref={messagesContainerRef}
+        onScroll={handleScroll}
+        className="flex-1 overflow-y-auto px-4 sm:px-6 py-4 space-y-4 bg-gradient-to-b from-slate-50 to-white"
+      >
+        {loadingOlder && (
+          <div className="flex items-center justify-center py-2 text-xs text-slate-500">
+            <div className="w-4 h-4 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin mr-2" />
+            Loading older messages…
+          </div>
+        )}
+        {!loadingOlder && !hasMore && messages.length >= 30 && (
+          <div className="text-center py-2 text-xs text-slate-400">
+            Beginning of conversation
+          </div>
+        )}
         {filteredMessages.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-full min-h-[200px]">
             <p className="text-sm text-ws-text-muted">
-              No messages yet. Say hello! 👋
+              {initialLoading ? 'Loading messages…' : 'No messages yet. Say hello! 👋'}
             </p>
           </div>
         ) : (
@@ -746,14 +886,13 @@ function Details({
                 key={msgKey}
                 ref={(el) => {
                   if (el) messageRefs.current[msgKey] = el;
-                  if (index === filteredMessages.length - 1)
-                    scrollRef.current = el;
                 }}
               >
                 <MessageBubble
                   message={msg}
                   isMe={isMe}
                   onDownload={handleDownloadImage}
+                  onDelete={handleDeleteClick}
                   senderName={senderName}
                   senderAvatar={senderAvatar}
                 />
@@ -776,8 +915,6 @@ function Details({
             </div>
           </div>
         )}
-
-        <div ref={scrollRef} />
       </div>
 
       {/* Input area */}
@@ -917,28 +1054,32 @@ function Details({
       )}
 
       {/* ==================== */}
-      {/* CLEAR CHAT CONFIRM */}
+      {/* DELETE MESSAGE CONFIRM */}
       {/* ==================== */}
 
-      {showClearConfirm && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-40 p-4">
+      {messageToDelete && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
           <div className="bg-ws-surface rounded-2xl shadow-xl w-full max-w-sm p-5 border border-ws-border">
-            <h3 className="text-base font-semibold text-ws-text mb-2">Clear chat?</h3>
+            <h3 className="text-base font-semibold text-ws-text mb-2">Delete message?</h3>
             <p className="text-sm text-ws-text-muted mb-5">
-              Messages will be removed from this device only. The other person will still see them.
+              This message will be deleted for everyone in this chat. This action cannot be undone.
             </p>
             <div className="flex justify-end gap-2">
               <button
+                type="button"
                 className="px-4 py-2.5 rounded-lg border border-ws-border hover:bg-ws-surface-alt text-ws-text text-sm font-medium transition"
-                onClick={() => setShowClearConfirm(false)}
+                onClick={() => setMessageToDelete(null)}
+                disabled={isDeleting}
               >
                 Cancel
               </button>
               <button
-                className="px-4 py-2.5 rounded-lg bg-red-500 text-white hover:bg-red-600 text-sm font-medium transition"
-                onClick={() => { setMessages([]); setShowClearConfirm(false); }}
+                type="button"
+                className="px-4 py-2.5 rounded-lg bg-red-600 text-white hover:bg-red-700 text-sm font-medium transition"
+                onClick={handleConfirmDelete}
+                disabled={isDeleting}
               >
-                Clear chat
+                {isDeleting ? 'Deleting…' : 'Delete'}
               </button>
             </div>
           </div>

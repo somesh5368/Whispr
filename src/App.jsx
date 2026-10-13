@@ -8,21 +8,18 @@ import Home from "./pages/Home";
 import NotFound from "./pages/NotFound";
 
 import socket from "./utils/socket";
-
-// Get user from localStorage
-const getUser = () => {
-  try {
-    const data = localStorage.getItem("user");
-    return data ? JSON.parse(data) : null;
-  } catch {
-    return null;
-  }
-};
+import { AuthProvider, useAuth } from "./context/AuthContext";
 
 // Protected Route Component
 const PrivateRoute = ({ children }) => {
-  const user = getUser();
-  return user?.token ? children : <Navigate to="/login" replace />;
+  const { token } = useAuth();
+  return token ? children : <Navigate to="/login" replace />;
+};
+
+// Root route redirect based on auth status
+const RootRedirect = () => {
+  const { token } = useAuth();
+  return <Navigate to={token ? "/main" : "/login"} replace />;
 };
 
 function App() {
@@ -53,47 +50,44 @@ function App() {
   }, []);
 
   return (
-    <BrowserRouter>
-      {/* Offline Banner */}
-      {!isOnline ? (
-        <div className="bg-amber-500 text-white text-center py-2 text-sm font-medium z-50">
-          You're offline. Some features may not work until you're back online.
-        </div>
-      ) : (
-        !isSocketConnected && (
-          <div className="bg-indigo-600 text-white text-center py-1.5 text-xs font-medium z-50 animate-pulse">
-            Reconnecting to Whispr server…
+    <AuthProvider>
+      <BrowserRouter>
+        {/* Offline Banner */}
+        {!isOnline ? (
+          <div className="bg-amber-500 text-white text-center py-2 text-sm font-medium z-50">
+            You're offline. Some features may not work until you're back online.
           </div>
-        )
-      )}
+        ) : (
+          !isSocketConnected && (
+            <div className="bg-indigo-600 text-white text-center py-1.5 text-xs font-medium z-50 animate-pulse">
+              Reconnecting to Whispr server…
+            </div>
+          )
+        )}
 
-      <Routes>
-        {/* Auth Routes */}
-        <Route path="/login" element={<Login />} />
-        <Route path="/register" element={<Register />} />
+        <Routes>
+          {/* Auth Routes */}
+          <Route path="/login" element={<Login />} />
+          <Route path="/register" element={<Register />} />
 
-        {/* Protected Routes */}
-        <Route
-          path="/main"
-          element={
-            <PrivateRoute>
-              <Home />
-            </PrivateRoute>
-          }
-        />
+          {/* Protected Routes */}
+          <Route
+            path="/main"
+            element={
+              <PrivateRoute>
+                <Home />
+              </PrivateRoute>
+            }
+          />
 
-        {/* Redirect root to /main or /login */}
-        <Route
-          path="/"
-          element={
-            <Navigate to={getUser()?.token ? "/main" : "/login"} replace />
-          }
-        />
+          {/* Redirect root to /main or /login */}
+          <Route path="/" element={<RootRedirect />} />
 
-        {/* 404 Not Found */}
-        <Route path="*" element={<NotFound />} />
-      </Routes>
-    </BrowserRouter>
+          {/* 404 Not Found */}
+          <Route path="*" element={<NotFound />} />
+        </Routes>
+      </BrowserRouter>
+    </AuthProvider>
   );
 }
 

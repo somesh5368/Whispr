@@ -1,24 +1,16 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { FaSignOutAlt, FaBars, FaTimes, FaUser } from 'react-icons/fa';
 import Profile from '../pages/Profile';
+import { useAuth } from '../context/AuthContext';
 
 function Header() {
   const [showProfile, setShowProfile] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const navigate = useNavigate();
   const location = useLocation();
+  const { user, logout } = useAuth();
 
-  const userData = useMemo(() => {
-    try {
-      const data = localStorage.getItem('user');
-      return data ? JSON.parse(data) : null;
-    } catch {
-      return null;
-    }
-  }, []);
-
-  const user = userData?.user || userData;
   const avatarUrl =
     user?.avatar && String(user.avatar).trim()
       ? user.avatar
@@ -27,8 +19,7 @@ function Header() {
         )}&background=4a154b&color=fff`;
 
   const handleLogout = () => {
-    localStorage.removeItem('token');
-    localStorage.removeItem('user');
+    logout();
     setMobileMenuOpen(false);
     navigate('/login', { replace: true });
   };

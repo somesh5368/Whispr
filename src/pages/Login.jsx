@@ -2,9 +2,11 @@ import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import socket from '../utils/socket';
 import API from '../utils/api';
+import { useAuth } from '../context/AuthContext';
 
 const Login = () => {
   const navigate = useNavigate();
+  const { login } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
@@ -33,13 +35,10 @@ const Login = () => {
         return;
       }
 
-      localStorage.setItem(
-        'user',
-        JSON.stringify({
-          user: { ...user, id: user.id || user._id },
-          token,
-        })
-      );
+      login({
+        user: { ...user, id: user.id || user._id },
+        token,
+      });
 
       const userId = user.id || user._id;
       if (userId) {
