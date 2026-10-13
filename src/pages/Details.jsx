@@ -571,22 +571,38 @@ function Details({
     const otherId = user.id || user._id;
     if (!otherId) return;
 
-    const handleOnline = (userId) => {
-      if (userId?.toString() === otherId?.toString()) {
+    const handleOnline = (payload) => {
+      const id = payload?.userId ?? payload;
+      if (id?.toString() === otherId?.toString()) {
         setIsOnline(true);
       }
     };
 
-    const handleOffline = (userId) => {
-      if (userId?.toString() === otherId?.toString()) {
+    const handleOffline = (payload) => {
+      const id = payload?.userId ?? payload;
+      if (id?.toString() === otherId?.toString()) {
         setIsOnline(false);
       }
     };
 
+    const handleOnlineUsers = (users) => {
+      if (Array.isArray(users) && otherId) {
+        setIsOnline(users.map(String).includes(otherId.toString()));
+      }
+    };
+
+    if (typeof user?.isOnline === 'boolean') {
+      setIsOnline(user.isOnline);
+    }
+
+    socket.on('onlineUsers', handleOnlineUsers);
     socket.on('userOnline', handleOnline);
     socket.on('userOffline', handleOffline);
 
+    socket.emit('getOnlineUsers');
+
     return () => {
+      socket.off('onlineUsers', handleOnlineUsers);
       socket.off('userOnline', handleOnline);
       socket.off('userOffline', handleOffline);
     };

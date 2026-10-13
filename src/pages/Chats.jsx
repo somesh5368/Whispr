@@ -22,12 +22,14 @@ function Chats({ onSelectContact, selectedContact, isMobile = false }) {
   const [searchLoading, setSearchLoading] = useState(false);
   const [showSearchResults, setShowSearchResults] = useState(false);
 
-  if (!currentUser || !currentUser.token) return null;
-
-  const authHeaders = { Authorization: `Bearer ${currentUser.token}` };
+  const authHeaders = useMemo(
+    () => (currentUser?.token ? { Authorization: `Bearer ${currentUser.token}` } : {}),
+    [currentUser?.token]
+  );
   const currentUserName = currentUser?.user?.name || currentUser?.name || currentUser?.email || 'User';
 
   const fetchRecentContacts = useCallback(async () => {
+    if (!currentUser?.token) return;
     try {
       setLoading(true);
       const res = await API.get('/api/messages/recent', { headers: authHeaders });
@@ -43,18 +45,18 @@ function Chats({ onSelectContact, selectedContact, isMobile = false }) {
     } finally {
       setLoading(false);
     }
-  }, [currentUser?.token]);
+  }, [authHeaders, currentUser?.token]);
 
   useEffect(() => {
     fetchRecentContacts();
-  }, [currentUser?.token]);
+  }, [fetchRecentContacts]);
 
   useEffect(() => {
     const handleUpdate = () => fetchRecentContacts();
     socket.off('updateRecentContacts');
     socket.on('updateRecentContacts', handleUpdate);
     return () => socket.off('updateRecentContacts', handleUpdate);
-  }, [currentUser?.token]);
+  }, [fetchRecentContacts]);
 
   useEffect(() => {
     const handleUserOnline = (payload) => {
@@ -65,9 +67,20 @@ function Chats({ onSelectContact, selectedContact, isMobile = false }) {
       const id = payload?.userId ?? payload;
       if (id) setOnlineUsers((prev) => { const s = new Set(prev); s.delete(String(id)); return s; });
     };
+    const handleOnlineUsers = (users) => {
+      if (Array.isArray(users)) {
+        setOnlineUsers(new Set(users.map(String)));
+      }
+    };
+
+    socket.on('onlineUsers', handleOnlineUsers);
     socket.on('userOnline', handleUserOnline);
     socket.on('userOffline', handleUserOffline);
+
+    socket.emit('getOnlineUsers');
+
     return () => {
+      socket.off('onlineUsers', handleOnlineUsers);
       socket.off('userOnline', handleUserOnline);
       socket.off('userOffline', handleUserOffline);
     };
@@ -75,26 +88,32 @@ function Chats({ onSelectContact, selectedContact, isMobile = false }) {
 
   const handleOpenChat = useCallback(
     async (user) => {
-      try {
-        const id = user.id || user._id;
-        if (id) await API.patch(`/api/messages/${id}/read`, {}, { headers: authHeaders });
-        fetchRecentContacts();
-      } catch (err) {
-        console.error('mark-read failed:', err);
+      const id = user.id || user._id || user.userId;
+      if (id && currentUser?.token) {
+        try {
+          await API.patch(`/api/messages/${id}/read`, {}, { headers: authHeaders });
+          fetchRecentContacts();
+        } catch (err) {
+          console.error('mark-read failed:', err);
+        }
       }
       try {
         localStorage.setItem(
           'lastSelectedContact',
-          JSON.stringify({ id: user.id || user._id, name: user.name, email: user.email, avatar: user.avatar })
+          JSON.stringify({ id, name: user.name, email: user.email, avatar: user.avatar })
         );
       } catch {}
-      onSelectContact(user);
+      onSelectContact({
+        ...user,
+        isOnline: id ? onlineUsers.has(String(id)) : false,
+      });
     },
-    [authHeaders, onSelectContact, fetchRecentContacts]
+    [authHeaders, currentUser?.token, fetchRecentContacts, onSelectContact, onlineUsers]
   );
 
   const searchUsers = useCallback(
     async (q) => {
+      if (!currentUser?.token) return;
       try {
         setSearchLoading(true);
         const res = await API.get('/api/users/search', { params: { q }, headers: authHeaders });
@@ -109,7 +128,7 @@ function Chats({ onSelectContact, selectedContact, isMobile = false }) {
         setSearchLoading(false);
       }
     },
-    [currentUser?.token]
+    [authHeaders, currentUser?.token]
   );
 
   const handleSearchChange = useCallback(
@@ -141,6 +160,8 @@ function Chats({ onSelectContact, selectedContact, isMobile = false }) {
     setSearchResults([]);
     setShowSearchResults(false);
   }, []);
+
+  if (!currentUser || !currentUser.token) return null;
 
   const displayContacts =
     showSearchResults && searchQuery.trim().length > 0 ? searchResults : recentContacts;

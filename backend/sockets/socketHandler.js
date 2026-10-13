@@ -16,6 +16,9 @@ const socketHandler = (io) => {
     // Track rate-limiting timestamps per socket (max 3 msgs / 1 sec)
     socket.messageTimestamps = [];
 
+    // Send connecting client the list of currently online user IDs from userSocketsMap
+    socket.emit("onlineUsers", Array.from(userSocketsMap.keys()));
+
     // ========== Join/Leave Events ==========
     socket.on("join", (data) => {
       const userId = socket.userId || (data && (typeof data === "object" ? data.userId : data));
@@ -40,6 +43,13 @@ const socketHandler = (io) => {
       if (wasOffline) {
         io.emit("userOnline", { userId: userIdStr });
       }
+
+      // Send the joining client the list of currently online user IDs
+      socket.emit("onlineUsers", Array.from(userSocketsMap.keys()));
+    });
+
+    socket.on("getOnlineUsers", () => {
+      socket.emit("onlineUsers", Array.from(userSocketsMap.keys()));
     });
 
     socket.on("leave", (data) => {
@@ -181,6 +191,18 @@ const socketHandler = (io) => {
       io.to(to.toString()).emit("userTyping", {
         from: from.toString(),
         isTyping,
+      });
+    });
+
+    socket.on("stopTyping", (data) => {
+      const { to } = data || {};
+      const from = socket.userId;
+
+      if (!to || !from) return;
+
+      io.to(to.toString()).emit("userTyping", {
+        from: from.toString(),
+        isTyping: false,
       });
     });
 
