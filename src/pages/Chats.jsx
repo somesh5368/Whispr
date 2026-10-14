@@ -4,7 +4,7 @@ import socket from '../utils/socket';
 import API from '../utils/api';
 import { useAuth } from '../context/AuthContext';
 
-function Chats({ onSelectContact, selectedContact, isMobile = false }) {
+function Chats({ onSelectContact, selectedContact }) {
   const { user: authUser, token } = useAuth();
   const [recentContacts, setRecentContacts] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -44,10 +44,19 @@ function Chats({ onSelectContact, selectedContact, isMobile = false }) {
   }, [fetchRecentContacts]);
 
   useEffect(() => {
-    const handleUpdate = () => fetchRecentContacts();
-    socket.off('updateRecentContacts');
+    const handleUpdate = () => {
+      console.log('// DEBUG-REMOVE [Client Chats] updateRecentContacts/messageDeleted/messageEdited received, refreshing contacts');
+      fetchRecentContacts();
+    };
     socket.on('updateRecentContacts', handleUpdate);
-    return () => socket.off('updateRecentContacts', handleUpdate);
+    socket.on('messageDeleted', handleUpdate);
+    socket.on('messageEdited', handleUpdate);
+
+    return () => {
+      socket.off('updateRecentContacts', handleUpdate);
+      socket.off('messageDeleted', handleUpdate);
+      socket.off('messageEdited', handleUpdate);
+    };
   }, [fetchRecentContacts]);
 
   useEffect(() => {
@@ -94,7 +103,9 @@ function Chats({ onSelectContact, selectedContact, isMobile = false }) {
           'lastSelectedContact',
           JSON.stringify({ id, name: user.name, email: user.email, avatar: user.avatar })
         );
-      } catch {}
+      } catch (err) {
+        console.debug('Failed to save lastSelectedContact:', err);
+      }
       onSelectContact({
         ...user,
         isOnline: id ? onlineUsers.has(String(id)) : false,
@@ -289,7 +300,7 @@ function Chats({ onSelectContact, selectedContact, isMobile = false }) {
                     )}
                   </div>
                   <div className="flex items-center justify-between gap-2">
-                    <span className="text-xs text-slate-500 truncate line-clamp-1">
+                    <span className={`text-xs text-slate-500 truncate line-clamp-1 ${lastMessage === 'This message was deleted' ? 'italic opacity-80' : ''}`}>
                       {lastMessage.length > 35 ? `${lastMessage.slice(0, 35)}…` : lastMessage}
                     </span>
                     {unreadCount > 0 && (

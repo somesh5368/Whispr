@@ -8,11 +8,21 @@ import {
 import { IoIosSend } from 'react-icons/io';
 import { BsEmojiSmile } from 'react-icons/bs';
 import { HiOutlinePhotograph } from 'react-icons/hi';
-import { FaTimes, FaArrowLeft, FaTrash } from 'react-icons/fa';
+import {
+  FaTimes,
+  FaArrowLeft,
+  FaBan,
+} from 'react-icons/fa';
 import EmojiPicker from 'emoji-picker-react';
 import API from '../utils/api';
 import socket from '../utils/socket';
 import { useAuth } from '../context/AuthContext';
+import MessageActions from '../component/MessageActions';
+import MessageEditor from '../component/MessageEditor';
+import ConfirmModal from '../component/ConfirmModal';
+
+// Named constant matching backend
+const EDIT_WINDOW_MS = 15 * 60 * 1000; // 15 minutes
 
 // ==================
 // UTILITY FUNCTIONS
@@ -63,6 +73,9 @@ const normalizeMessage = (msg) => ({
   receiverId: msg.receiverId || msg.receiver?._id || msg.receiver?.id,
   id: msg._id || msg.id,
   createdAt: msg.createdAt || msg.timestamp,
+  isDeleted: Boolean(msg.isDeleted),
+  isEdited: Boolean(msg.isEdited),
+  editedAt: msg.editedAt || null,
 });
 
 // ==================
@@ -74,6 +87,15 @@ const MessageBubble = ({
   isMe,
   onDownload,
   onDelete,
+  onStartEdit,
+  isEditing,
+  onSaveEdit,
+  onCancelEdit,
+  isSavingEdit,
+  editError,
+  isMenuOpen,
+  onToggleMenu,
+  onCloseMenu,
   senderName,
   senderAvatar,
 }) => {
@@ -112,9 +134,59 @@ const MessageBubble = ({
     return null;
   };
 
+  // WhatsApp-style deleted message: muted, italic bubble with ban icon and no actions menu
+  if (message.isDeleted) {
+    return (
+      <div className={`flex w-full ${isMe ? 'justify-end' : 'justify-start'}`}>
+        <div className={`flex gap-2 max-w-[85%] sm:max-w-xs ${isMe ? 'flex-row-reverse' : ''}`}>
+          {!isMe && (
+            <div className="flex-shrink-0 w-8 h-8 rounded-full overflow-hidden bg-ws-surface-alt border border-ws-border flex items-center justify-center">
+              {senderAvatar ? (
+                <img src={senderAvatar} alt={senderName} className="w-full h-full object-cover" />
+              ) : (
+                <span className="text-xs font-semibold text-ws-text-muted">
+                  {senderName?.charAt(0)?.toUpperCase() || 'U'}
+                </span>
+              )}
+            </div>
+          )}
+
+          <div
+            className={`rounded-2xl px-4 py-2.5 border shadow-sm ${
+              isMe
+                ? 'bg-indigo-50/70 border-indigo-200/60 text-slate-500 rounded-br-md'
+                : 'bg-slate-100/90 border-slate-200 text-slate-500 rounded-bl-md'
+            }`}
+          >
+            {!isMe && (
+              <p className="text-xs font-semibold mb-1 opacity-70">{senderName}</p>
+            )}
+
+            <div className="flex items-center gap-1.5 py-0.5 text-sm italic select-none text-slate-500">
+              <FaBan className="text-slate-400 text-xs flex-shrink-0" />
+              <span>{isMe ? 'You deleted this message' : 'This message was deleted'}</span>
+            </div>
+
+            <div className="flex items-center justify-end gap-1 mt-1 text-[11px] text-slate-400">
+              <span>{time}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  const messageCreatedAt = new Date(message.createdAt || message.timestamp).getTime();
+  const isWithinEditWindow = Date.now() - messageCreatedAt < EDIT_WINDOW_MS;
+  const canEdit =
+    isMe &&
+    !message.isDeleted &&
+    Boolean(message.message && message.message !== '[Image]' && message.message.trim()) &&
+    isWithinEditWindow;
+
   return (
     <div className={`flex w-full ${isMe ? 'justify-end' : 'justify-start'}`}>
-      <div className={`flex gap-2 max-w-[85%] sm:max-w-xs ${isMe ? 'flex-row-reverse' : ''}`}>
+      <div className={`relative group flex gap-2 max-w-[85%] sm:max-w-xs ${isMe ? 'flex-row-reverse' : ''}`}>
         {!isMe && (
           <div className="flex-shrink-0 w-8 h-8 rounded-full overflow-hidden bg-ws-surface-alt border border-ws-border flex items-center justify-center">
             {senderAvatar ? (
@@ -127,68 +199,90 @@ const MessageBubble = ({
           </div>
         )}
 
-        <div
-          className={`rounded-2xl px-4 py-2.5 shadow-md ${
-            isMe
-              ? 'bg-gradient-to-br from-indigo-500 to-purple-600 text-white rounded-br-md'
-              : 'bg-white border border-slate-200 text-slate-800 rounded-bl-md shadow-card'
-          }`}
-        >
-          {!isMe && (
-            <p className="text-xs font-semibold mb-1 opacity-80">{senderName}</p>
-          )}
-
-          {message.image && (
-            <div className="mb-2">
-              <img
-                src={message.image}
-                alt="shared"
-                className="rounded-lg max-h-64 max-w-full object-cover"
-                onError={(e) => {
-                  e.target.src =
-                    'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="100" height="100"%3E%3Crect fill="%23ddd" width="100" height="100"/%3E%3Ctext x="50" y="50" dominant-baseline="middle" text-anchor="middle" font-family="Arial" font-size="14" fill="%23999"%3EImage not found%3C/text%3E%3C/svg%3E';
-                }}
-              />
-              {!isMe && (
-                <button
-                  onClick={() => onDownload(message.image)}
-                  className="text-xs mt-1 block text-ws-primary hover:underline"
-                >
-                  Download
-                </button>
-              )}
-            </div>
-          )}
-
-          {message.message && (
-            <p className="break-words whitespace-pre-wrap text-sm leading-snug">
-              {message.message}
-            </p>
-          )}
-
+        {isEditing ? (
           <div
-            className={`flex items-center justify-end gap-1 mt-1 text-xs ${
-              isMe ? 'text-white/80' : 'text-ws-text-muted'
+            className={`rounded-2xl px-4 py-3 shadow-md w-full min-w-[220px] sm:min-w-[280px] ${
+              isMe
+                ? 'bg-gradient-to-br from-indigo-500 to-purple-600 text-white rounded-br-md'
+                : 'bg-white border border-slate-200 text-slate-800 rounded-bl-md shadow-card'
             }`}
           >
-            <span>{time}</span>
-            {isMe && statusIcon(message.status)}
-            {isMe && onDelete && (
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onDelete(message);
-                }}
-                className="opacity-70 hover:opacity-100 hover:text-red-200 transition ml-1 p-0.5"
-                title="Delete message"
-                aria-label="Delete message"
-              >
-                <FaTrash size={10} />
-              </button>
-            )}
+            <MessageEditor
+              initialText={message.message}
+              onSave={(newText) => onSaveEdit(message, newText)}
+              onCancel={onCancelEdit}
+              isSaving={isSavingEdit}
+              error={editError}
+            />
           </div>
-        </div>
+        ) : (
+          <div
+            className={`relative rounded-2xl px-4 py-2.5 shadow-md ${
+              isMe
+                ? 'bg-gradient-to-br from-indigo-500 to-purple-600 text-white rounded-br-md'
+                : 'bg-white border border-slate-200 text-slate-800 rounded-bl-md shadow-card'
+            }`}
+          >
+            {!isMe && (
+              <p className="text-xs font-semibold mb-1 opacity-80">{senderName}</p>
+            )}
+
+            {/* Menu trigger for user's own non-deleted messages */}
+            {isMe && (
+              <div className="absolute top-1.5 right-1.5 z-10">
+                <MessageActions
+                  message={message}
+                  canEdit={canEdit}
+                  isOpen={isMenuOpen}
+                  onToggle={() => onToggleMenu(message.id || message._id)}
+                  onClose={onCloseMenu}
+                  onStartEdit={onStartEdit}
+                  onDelete={onDelete}
+                />
+              </div>
+            )}
+
+            {message.image && (
+              <div className="mb-2">
+                <img
+                  src={message.image}
+                  alt="shared"
+                  className="rounded-lg max-h-64 max-w-full object-cover"
+                  onError={(e) => {
+                    e.target.src =
+                      'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="100" height="100"%3E%3Crect fill="%23ddd" width="100" height="100"/%3E%3Ctext x="50" y="50" dominant-baseline="middle" text-anchor="middle" font-family="Arial" font-size="14" fill="%23999"%3EImage not found%3C/text%3E%3C/svg%3E';
+                  }}
+                />
+                {!isMe && (
+                  <button
+                    onClick={() => onDownload(message.image)}
+                    className="text-xs mt-1 block text-ws-primary hover:underline"
+                  >
+                    Download
+                  </button>
+                )}
+              </div>
+            )}
+
+            {message.message && (
+              <p className={`break-words whitespace-pre-wrap text-sm leading-snug ${isMe ? 'pr-5' : ''}`}>
+                {message.message}
+              </p>
+            )}
+
+            <div
+              className={`flex items-center justify-end gap-1 mt-1 text-xs ${
+                isMe ? 'text-white/80' : 'text-ws-text-muted'
+              }`}
+            >
+              {message.isEdited && (
+                <span className="text-[10px] opacity-75 italic mr-0.5">edited</span>
+              )}
+              <span>{time}</span>
+              {isMe && statusIcon(message.status)}
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -224,6 +318,10 @@ function Details({
   const [uploadingImage, setUploadingImage] = useState(false);
   const [showSearch, setShowSearch] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const [activeMenuMessageId, setActiveMenuMessageId] = useState(null);
+  const [editingMessageId, setEditingMessageId] = useState(null);
+  const [isSavingEdit, setIsSavingEdit] = useState(false);
+  const [editError, setEditError] = useState(null);
 
   // Refs
   const messagesContainerRef = useRef(null);
@@ -238,15 +336,12 @@ function Details({
   // SOCKET & DATA LOADING
   // ==================
 
-  // Join/leave socket room for current user
+  // Join socket room for current user
   useEffect(() => {
     if (!currentUserId) return;
 
     socket.emit('join', { userId: currentUserId });
-
-    return () => {
-      socket.emit('leave', { userId: currentUserId });
-    };
+    // Note: Keep socket in room so user continues receiving events even across screen changes
   }, [currentUserId]);
 
   // Fetch initial messages with selected user
@@ -333,6 +428,8 @@ function Details({
     // Optimistically append message so it appears instantly
     const localMsg = normalizeMessage({
       _id: tempId,
+      id: tempId,
+      clientId: tempId,
       senderId: currentUserId,
       receiverId: otherId,
       message: trimmed,
@@ -351,14 +448,14 @@ function Details({
     setTimeout(() => {
       setMessages((prev) =>
         prev.map((m) =>
-          (m.id === tempId || m._id === tempId) && m.status === 'sent'
+          (m.id === tempId || m._id === tempId || m.clientId === tempId) && m.status === 'sent'
             ? { ...m, status: 'failed' }
             : m
         )
       );
     }, 8000);
 
-    sendMessage({ message: trimmed });
+    sendMessage({ message: trimmed, clientId: tempId });
 
     setMessage('');
 
@@ -548,6 +645,7 @@ function Details({
   // Delivered/read/sent ack updates
   useEffect(() => {
     const sentAck = ({ clientId, messageId, status }) => {
+      console.log('// DEBUG-REMOVE [Details] messageSent ack received:', { clientId, messageId, status });
       setMessages((prev) =>
         prev.map((msg) =>
           msg.id === clientId || msg.clientId === clientId
@@ -560,7 +658,9 @@ function Details({
     const delivered = (messageId) => {
       setMessages((prev) =>
         prev.map((msg) =>
-          msg.id === messageId ? { ...msg, status: 'delivered' } : msg
+          String(msg.id) === String(messageId) || String(msg._id) === String(messageId)
+            ? { ...msg, status: 'delivered' }
+            : msg
         )
       );
     };
@@ -568,7 +668,36 @@ function Details({
     const read = (messageId) => {
       setMessages((prev) =>
         prev.map((msg) =>
-          msg.id === messageId ? { ...msg, status: 'read' } : msg
+          String(msg.id) === String(messageId) || String(msg._id) === String(messageId)
+            ? { ...msg, status: 'read' }
+            : msg
+        )
+      );
+    };
+
+    const handleMessageDeleted = ({ messageId }) => {
+      console.log('// DEBUG-REMOVE [Details] client received messageDeleted:', { messageId });
+      setMessages((prev) =>
+        prev.map((m) =>
+          String(m.id || m._id) === String(messageId)
+            ? { ...m, isDeleted: true, message: '', image: null }
+            : m
+        )
+      );
+    };
+
+    const handleMessageEdited = ({ messageId, message: newText, isEdited, editedAt }) => {
+      console.log('// DEBUG-REMOVE [Details] client received messageEdited:', { messageId, newText });
+      setMessages((prev) =>
+        prev.map((m) =>
+          String(m.id || m._id) === String(messageId)
+            ? {
+                ...m,
+                message: newText,
+                isEdited: isEdited !== undefined ? isEdited : true,
+                editedAt: editedAt || new Date().toISOString(),
+              }
+            : m
         )
       );
     };
@@ -576,11 +705,15 @@ function Details({
     socket.on('messageSent', sentAck);
     socket.on('messageDelivered', delivered);
     socket.on('messageRead', read);
+    socket.on('messageDeleted', handleMessageDeleted);
+    socket.on('messageEdited', handleMessageEdited);
 
     return () => {
       socket.off('messageSent', sentAck);
       socket.off('messageDelivered', delivered);
       socket.off('messageRead', read);
+      socket.off('messageDeleted', handleMessageDeleted);
+      socket.off('messageEdited', handleMessageEdited);
     };
   }, []);
 
@@ -732,8 +865,14 @@ function Details({
     const targetId = messageToDelete.id || messageToDelete._id;
     const previousMessages = [...messages];
 
-    // Optimistic UI update
-    setMessages((prev) => prev.filter((m) => (m.id || m._id) !== targetId));
+    // Optimistic UI update: mark message as deleted
+    setMessages((prev) =>
+      prev.map((m) =>
+        String(m.id || m._id) === String(targetId)
+          ? { ...m, isDeleted: true, message: '', image: null }
+          : m
+      )
+    );
     setMessageToDelete(null);
     setIsDeleting(true);
 
@@ -748,6 +887,67 @@ function Details({
       setIsDeleting(false);
     }
   }, [messageToDelete, messages]);
+
+  const handleStartEdit = useCallback((msg) => {
+    setEditingMessageId(msg.id || msg._id);
+    setEditError(null);
+    setActiveMenuMessageId(null);
+  }, []);
+
+  const handleCancelEdit = useCallback(() => {
+    setEditingMessageId(null);
+    setEditError(null);
+  }, []);
+
+  const handleSaveEdit = useCallback(
+    async (msg, newText) => {
+      const targetId = msg.id || msg._id;
+      const trimmed = (newText || '').trim();
+
+      if (!trimmed) {
+        setEditError('Message text cannot be empty');
+        return;
+      }
+
+      if (trimmed === msg.message) {
+        setEditingMessageId(null);
+        setEditError(null);
+        return;
+      }
+
+      setIsSavingEdit(true);
+      setEditError(null);
+      const previousMessages = [...messages];
+
+      // Optimistic UI update: update text and mark as edited
+      setMessages((prev) =>
+        prev.map((m) =>
+          String(m.id || m._id) === String(targetId)
+            ? {
+                ...m,
+                message: trimmed,
+                isEdited: true,
+                editedAt: new Date().toISOString(),
+              }
+            : m
+        )
+      );
+
+      try {
+        await API.patch(`/api/messages/${targetId}/edit`, { message: trimmed });
+        setEditingMessageId(null);
+        setEditError(null);
+      } catch (err) {
+        console.error('Failed to edit message:', err);
+        // Rollback on failure
+        setMessages(previousMessages);
+        setEditError(err.response?.data?.message || 'Failed to edit message. Please try again.');
+      } finally {
+        setIsSavingEdit(false);
+      }
+    },
+    [messages]
+  );
 
   // ==================
   // KEYBOARD & SEARCH
@@ -854,6 +1054,7 @@ function Details({
       <div
         ref={messagesContainerRef}
         onScroll={handleScroll}
+        onClick={() => setActiveMenuMessageId(null)}
         className="flex-1 overflow-y-auto px-4 sm:px-6 py-4 space-y-4 bg-gradient-to-b from-slate-50 to-white"
       >
         {loadingOlder && (
@@ -877,9 +1078,21 @@ function Details({
           filteredMessages.map((msg, index) => {
             const isMe =
               msg.senderId?.toString() === currentUserId?.toString();
-            const msgKey = msg.id || `tmp-${index}`;
+            const msgKey = msg.id || msg._id || `tmp-${index}`;
             const senderName = isMe ? 'You' : user.name || 'User';
             const senderAvatar = isMe ? '' : avatarUrl;
+            const isEditing = Boolean(
+              editingMessageId &&
+                (String(editingMessageId) === String(msgKey) ||
+                  String(editingMessageId) === String(msg.id) ||
+                  String(editingMessageId) === String(msg._id))
+            );
+            const isMenuOpen = Boolean(
+              activeMenuMessageId &&
+                (String(activeMenuMessageId) === String(msgKey) ||
+                  String(activeMenuMessageId) === String(msg.id) ||
+                  String(activeMenuMessageId) === String(msg._id))
+            );
 
             return (
               <div
@@ -893,6 +1106,17 @@ function Details({
                   isMe={isMe}
                   onDownload={handleDownloadImage}
                   onDelete={handleDeleteClick}
+                  onStartEdit={handleStartEdit}
+                  isEditing={isEditing}
+                  onSaveEdit={handleSaveEdit}
+                  onCancelEdit={handleCancelEdit}
+                  isSavingEdit={isSavingEdit}
+                  editError={isEditing ? editError : null}
+                  isMenuOpen={isMenuOpen}
+                  onToggleMenu={(id) =>
+                    setActiveMenuMessageId((prev) => (String(prev) === String(id) ? null : id))
+                  }
+                  onCloseMenu={() => setActiveMenuMessageId(null)}
                   senderName={senderName}
                   senderAvatar={senderAvatar}
                 />
@@ -1054,37 +1278,20 @@ function Details({
       )}
 
       {/* ==================== */}
-      {/* DELETE MESSAGE CONFIRM */}
+      {/* DELETE MESSAGE CONFIRM MODAL */}
       {/* ==================== */}
-
-      {messageToDelete && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-          <div className="bg-ws-surface rounded-2xl shadow-xl w-full max-w-sm p-5 border border-ws-border">
-            <h3 className="text-base font-semibold text-ws-text mb-2">Delete message?</h3>
-            <p className="text-sm text-ws-text-muted mb-5">
-              This message will be deleted for everyone in this chat. This action cannot be undone.
-            </p>
-            <div className="flex justify-end gap-2">
-              <button
-                type="button"
-                className="px-4 py-2.5 rounded-lg border border-ws-border hover:bg-ws-surface-alt text-ws-text text-sm font-medium transition"
-                onClick={() => setMessageToDelete(null)}
-                disabled={isDeleting}
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                className="px-4 py-2.5 rounded-lg bg-red-600 text-white hover:bg-red-700 text-sm font-medium transition"
-                onClick={handleConfirmDelete}
-                disabled={isDeleting}
-              >
-                {isDeleting ? 'Deleting…' : 'Delete'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <ConfirmModal
+        isOpen={Boolean(messageToDelete)}
+        title="Delete this message?"
+        message="This message will be removed for everyone in this chat. This action cannot be undone."
+        confirmText="Delete"
+        cancelText="Cancel"
+        isProcessing={isDeleting}
+        onConfirm={handleConfirmDelete}
+        onCancel={() => {
+          if (!isDeleting) setMessageToDelete(null);
+        }}
+      />
     </div>
   );
 }

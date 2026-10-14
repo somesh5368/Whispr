@@ -16,6 +16,22 @@ const socketHandler = (io) => {
     // Track rate-limiting timestamps per socket (max 3 msgs / 1 sec)
     socket.messageTimestamps = [];
 
+    // Automatically join room for authenticated user ID so they never miss personal notifications
+    const authUserId = socket.userId ? socket.userId.toString() : null;
+    if (authUserId) {
+      socket.join(authUserId);
+      if (!userSocketsMap.has(authUserId)) {
+        userSocketsMap.set(authUserId, new Set());
+      }
+      const userSockets = userSocketsMap.get(authUserId);
+      const wasOffline = userSockets.size === 0;
+      userSockets.add(socket.id);
+      if (wasOffline) {
+        io.emit("userOnline", { userId: authUserId });
+      }
+      console.log(`// DEBUG-REMOVE [Socket] User ${authUserId} automatically joined room on connect (${socket.id})`);
+    }
+
     // Send connecting client the list of currently online user IDs from userSocketsMap
     socket.emit("onlineUsers", Array.from(userSocketsMap.keys()));
 

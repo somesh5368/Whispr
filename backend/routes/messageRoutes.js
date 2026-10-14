@@ -11,6 +11,7 @@ const {
   uploadMessageImage,
   updateMessageStatus,
   deleteMessage,
+  editMessage,
 } = require("../controllers/messageController");
 
 const { protect } = require("../middleware/authMiddleware");
@@ -47,6 +48,9 @@ router.get("/:userId", protect, getMessages);
 
 // Mark messages from a specific user as read
 router.patch("/:userId/read", protect, markAsRead);
+
+// Edit message
+router.patch("/:messageId/edit", protect, editMessage);
 
 // Update message status
 router.put("/:messageId/status", protect, updateMessageStatus);
