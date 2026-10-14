@@ -93,6 +93,7 @@ const MessageBubble = ({
   onCancelEdit,
   isSavingEdit,
   editError,
+  onRetry,
   isMenuOpen,
   onToggleMenu,
   onCloseMenu,
@@ -111,8 +112,22 @@ const MessageBubble = ({
   const statusIcon = (status) => {
     if (status === 'failed') {
       return (
-        <span className="text-xs text-red-200 font-medium inline-block ml-1 cursor-pointer" title="Failed to send. Tap to retry.">
+        <span
+          className="text-xs text-red-200 font-medium inline-block ml-1 cursor-pointer hover:underline"
+          title="Failed to send. Tap to retry."
+          onClick={(e) => {
+            e.stopPropagation();
+            if (onRetry) onRetry(message);
+          }}
+        >
           ⚠️ Failed
+        </span>
+      );
+    }
+    if (status === 'sending') {
+      return (
+        <span className="text-[10px] text-white/70 inline-block ml-1 opacity-75" title="Sending…">
+          🕒
         </span>
       );
     }
@@ -444,14 +459,19 @@ function Details({
       }
     });
 
-    // 8-second ack timer: mark message failed if server doesn't respond
+    // 8-second ack timer: mark message failed ONLY if server never acknowledged it
     setTimeout(() => {
       setMessages((prev) =>
-        prev.map((m) =>
-          (m.id === tempId || m._id === tempId || m.clientId === tempId) && m.status === 'sent'
-            ? { ...m, status: 'failed' }
-            : m
-        )
+        prev.map((m) => {
+          // If this message was already acknowledged or assigned a real server ObjectId, it did NOT fail
+          if (m.acknowledged || (m._id && !String(m._id).startsWith('local-') && !String(m.id).startsWith('local-'))) {
+            return m;
+          }
+          if (m.id === tempId || m._id === tempId || m.clientId === tempId) {
+            return { ...m, status: 'failed' };
+          }
+          return m;
+        })
       );
     }, 8000);
 
@@ -649,27 +669,38 @@ function Details({
       setMessages((prev) =>
         prev.map((msg) =>
           msg.id === clientId || msg.clientId === clientId
-            ? { ...msg, id: messageId || msg.id, _id: messageId || msg._id, status: status || 'sent' }
+            ? {
+                ...msg,
+                id: messageId || msg.id,
+                _id: messageId || msg._id,
+                status: status || 'sent',
+                acknowledged: true,
+                clientId: null,
+              }
             : msg
         )
       );
     };
 
-    const delivered = (messageId) => {
+    const delivered = (data) => {
+      const targetId = typeof data === 'object' && data !== null ? (data.messageId || data.id) : data;
+      if (!targetId) return;
       setMessages((prev) =>
         prev.map((msg) =>
-          String(msg.id) === String(messageId) || String(msg._id) === String(messageId)
-            ? { ...msg, status: 'delivered' }
+          String(msg.id) === String(targetId) || String(msg._id) === String(targetId)
+            ? { ...msg, status: 'delivered', acknowledged: true }
             : msg
         )
       );
     };
 
-    const read = (messageId) => {
+    const read = (data) => {
+      const targetId = typeof data === 'object' && data !== null ? (data.messageId || data.id) : data;
+      if (!targetId) return;
       setMessages((prev) =>
         prev.map((msg) =>
-          String(msg.id) === String(messageId) || String(msg._id) === String(messageId)
-            ? { ...msg, status: 'read' }
+          String(msg.id) === String(targetId) || String(msg._id) === String(targetId)
+            ? { ...msg, status: 'read', acknowledged: true }
             : msg
         )
       );
@@ -928,6 +959,7 @@ function Details({
                 message: trimmed,
                 isEdited: true,
                 editedAt: new Date().toISOString(),
+                status: m.status === 'failed' ? 'sent' : m.status,
               }
             : m
         )
@@ -947,6 +979,22 @@ function Details({
       }
     },
     [messages]
+  );
+
+  const handleRetry = useCallback(
+    (msg) => {
+      if (!msg) return;
+      const targetId = msg.id || msg._id;
+      setMessages((prev) =>
+        prev.map((m) =>
+          String(m.id || m._id) === String(targetId)
+            ? { ...m, status: 'sent', acknowledged: false }
+            : m
+        )
+      );
+      sendMessage({ message: msg.message, clientId: targetId });
+    },
+    [sendMessage]
   );
 
   // ==================
@@ -1112,6 +1160,7 @@ function Details({
                   onCancelEdit={handleCancelEdit}
                   isSavingEdit={isSavingEdit}
                   editError={isEditing ? editError : null}
+                  onRetry={handleRetry}
                   isMenuOpen={isMenuOpen}
                   onToggleMenu={(id) =>
                     setActiveMenuMessageId((prev) => (String(prev) === String(id) ? null : id))
