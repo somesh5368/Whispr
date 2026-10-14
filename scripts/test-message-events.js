@@ -36,7 +36,14 @@ const { io: ioClient } = requireBackend('socket.io-client');
 const PORT = process.env.PORT || 5000;
 const SERVER_URL = `http://localhost:${PORT}`;
 const JWT_SECRET = process.env.JWT_SECRET || 'someshSecretKey';
-const MONGO_URI = process.env.MONGO_URI;
+const TEST_MONGO_URI = process.env.TEST_MONGO_URI;
+
+if (!TEST_MONGO_URI) {
+  console.error('\n❌ REFUSING TO RUN: TEST_MONGO_URI is missing!');
+  console.error('To protect your production database, this integration test requires a dedicated test database.');
+  console.error('Please set TEST_MONGO_URI in your environment or backend/.env (e.g., TEST_MONGO_URI="mongodb+srv://<user>:<password>@cluster0.mongodb.net/whispr_test?retryWrites=true&w=majority")\n');
+  process.exit(1);
+}
 
 // Import models
 const User = requireBackend('./models/user');
@@ -87,7 +94,7 @@ async function run() {
 
   // 1. Connect to MongoDB to fetch or prepare 2 test users
   console.log('1. Connecting to MongoDB to get test users…');
-  await mongoose.connect(MONGO_URI);
+  await mongoose.connect(TEST_MONGO_URI);
 
   let userA = await User.findOne({ email: 'test_alice@whispr.com' });
   if (!userA) {

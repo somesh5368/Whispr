@@ -62,15 +62,26 @@ const userSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
+// Indexes for fast case-insensitive search (strength 2 collation per Task 8)
+userSchema.index(
+  { name: 1 },
+  { name: "name_collation_search", collation: { locale: "en", strength: 2 } }
+);
+userSchema.index(
+  { email: 1 },
+  { name: "email_collation_search", collation: { locale: "en", strength: 2 } }
+);
+
 // Hash password before save
-userSchema.pre('save', async function (next) {
+userSchema.pre("save", async function (next) {
   // Only hash password if it has been modified
-  if (!this.isModified('password')) {
+  if (!this.isModified("password")) {
     return next();
   }
 
   try {
-    const salt = await bcrypt.genSalt(10);
+    // Raise bcrypt cost to 12 per Task 7 (existing hashes keep working)
+    const salt = await bcrypt.genSalt(12);
     this.password = await bcrypt.hash(this.password, salt);
     next();
   } catch (error) {
@@ -82,8 +93,8 @@ userSchema.pre('save', async function (next) {
 userSchema.methods.matchPassword = async function (enteredPassword) {
   try {
     return await bcrypt.compare(enteredPassword, this.password);
-  } catch (error) {
-    throw new Error('Password comparison failed');
+  } catch {
+    throw new Error("Password comparison failed");
   }
 };
 
@@ -96,4 +107,4 @@ userSchema.methods.toJSON = function () {
 
 // Prevent model overwrite error
 module.exports =
-  mongoose.models.User || mongoose.model('User', userSchema);
+  mongoose.models.User || mongoose.model("User", userSchema);

@@ -16,9 +16,30 @@ const {
 
 const { protect } = require("../middleware/authMiddleware");
 const upload = require("../middleware/uploadMiddleware");
+const {
+  validate,
+  sendMessageSchema,
+  uploadImageBodySchema,
+  editMessageSchema,
+  updateMessageStatusSchema,
+  userIdParamSchema,
+  messageIdParamSchema,
+  getMessagesQuerySchema,
+} = require("../validators");
 
-// Send text message (image should be URL/base64 in body if used)
-router.post("/send", protect, sendMessage);
+const {
+  messageActionLimiter,
+  uploadLimiter,
+} = require("../config/rateLimiters");
+
+// Send text message (rate limited & validated)
+router.post(
+  "/send",
+  protect,
+  messageActionLimiter,
+  validate({ body: sendMessageSchema }),
+  sendMessage
+);
 
 // Upload image and create image message (multer errors → 400)
 function handleUploadError(err, req, res, next) {
@@ -35,8 +56,10 @@ function handleUploadError(err, req, res, next) {
 router.post(
   "/upload-image",
   protect,
+  uploadLimiter,
   upload.single("image"),
   handleUploadError,
+  validate({ body: uploadImageBodySchema }),
   uploadMessageImage
 );
 
@@ -44,18 +67,40 @@ router.post(
 router.get("/recent", protect, getRecentContacts);
 
 // Get messages between current user and another user
-router.get("/:userId", protect, getMessages);
+router.get(
+  "/:userId",
+  protect,
+  validate({ params: userIdParamSchema, query: getMessagesQuerySchema }),
+  getMessages
+);
 
 // Mark messages from a specific user as read
-router.patch("/:userId/read", protect, markAsRead);
+router.patch("/:userId/read", protect, validate({ params: userIdParamSchema }), markAsRead);
 
-// Edit message
-router.patch("/:messageId/edit", protect, editMessage);
+// Edit message (rate limited & validated)
+router.patch(
+  "/:messageId/edit",
+  protect,
+  messageActionLimiter,
+  validate({ params: messageIdParamSchema, body: editMessageSchema }),
+  editMessage
+);
 
 // Update message status
-router.put("/:messageId/status", protect, updateMessageStatus);
+router.put(
+  "/:messageId/status",
+  protect,
+  validate({ params: messageIdParamSchema, body: updateMessageStatusSchema }),
+  updateMessageStatus
+);
 
-// Delete message
-router.delete("/:messageId", protect, deleteMessage);
+// Delete message (rate limited & validated)
+router.delete(
+  "/:messageId",
+  protect,
+  messageActionLimiter,
+  validate({ params: messageIdParamSchema }),
+  deleteMessage
+);
 
 module.exports = router;

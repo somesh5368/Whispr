@@ -15,16 +15,25 @@ const {
 
 const { protect } = require("../middleware/authMiddleware");
 const upload = require("../middleware/uploadMiddleware");
+const {
+  validate,
+  registerSchema,
+  loginSchema,
+  updateProfileSchema,
+  searchQuerySchema,
+  userIdParamSchema,
+} = require("../validators");
+const { authLimiter, searchLimiter, uploadLimiter } = require("../config/rateLimiters");
 
-// Authentication routes
-router.post("/register", registerUser);
-router.post("/login", loginUser);
+// Authentication routes (rate limited & validated)
+router.post("/register", authLimiter, validate({ body: registerSchema }), registerUser);
+router.post("/login", authLimiter, validate({ body: loginSchema }), loginUser);
 
 // Legacy aliases (canonical routes are under /api/users)
 router.get("/me", protect, getMe);
-router.put("/profile", protect, updateProfile);
-router.put("/profile-photo", protect, upload.single("avatar"), updateProfilePhoto);
-router.get("/search", protect, searchUsers);
-router.get("/users/:userId", protect, getAllUsers);
+router.put("/profile", protect, validate({ body: updateProfileSchema }), updateProfile);
+router.put("/profile-photo", protect, uploadLimiter, upload.single("avatar"), updateProfilePhoto);
+router.get("/search", protect, searchLimiter, validate({ query: searchQuerySchema }), searchUsers);
+router.get("/users/:userId", protect, validate({ params: userIdParamSchema }), getAllUsers);
 
 module.exports = router;

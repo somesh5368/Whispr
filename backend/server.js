@@ -15,35 +15,48 @@ const messageRoutes = require("./routes/messageRoutes");
 const userRoutes = require("./routes/userRoutes");
 const socketHandler = require("./sockets/socketHandler");
 
-console.log("📋 Environment Check:");
-console.log(`MongoDB: ${process.env.MONGO_URI ? "✅" : "❌"}`);
-console.log(`JWT Secret: ${process.env.JWT_SECRET ? "✅" : "❌"}`);
-console.log(
-  `Cloudinary: ${process.env.CLOUDINARY_CLOUD_NAME ? "✅" : "❌"}`
-);
+// Environment validation & fail-fast checks (Task 7)
+const requiredEnvVars = [
+  { name: "MONGO_URI", value: process.env.MONGO_URI },
+  { name: "JWT_SECRET", value: process.env.JWT_SECRET },
+  { name: "CLOUDINARY_CLOUD_NAME", value: process.env.CLOUDINARY_CLOUD_NAME },
+  { name: "CLOUDINARY_API_KEY", value: process.env.CLOUDINARY_API_KEY },
+  { name: "CLOUDINARY_API_SECRET", value: process.env.CLOUDINARY_API_SECRET },
+];
+
+const missingVars = requiredEnvVars
+  .filter((item) => !item.value || item.value.trim() === "")
+  .map((item) => item.name);
+
+if (missingVars.length > 0) {
+  console.error(
+    `\n❌ FATAL: Missing required environment variable(s):\n  - ${missingVars.join(
+      "\n  - "
+    )}\nWhispr cannot start safely. Please configure these variables in your .env file.\n`
+  );
+  process.exit(1);
+}
+
+if (process.env.JWT_SECRET && process.env.JWT_SECRET.length < 32) {
+  console.warn(
+    `\n⚠️ SECURITY WARNING: JWT_SECRET length is ${process.env.JWT_SECRET.length} characters (< 32). A minimum length of 32 characters is strongly recommended.\n`
+  );
+}
 
 // Connect to MongoDB
 connectDB();
 
 const helmet = require("helmet");
-const rateLimit = require("express-rate-limit");
+const { generalApiLimiter, authLimiter } = require("./config/rateLimiters");
+const { notFound, errorHandler } = require("./middleware/errorMiddleware");
 
 const app = express();
 
-// Security Headers
-app.use(helmet({ contentSecurityPolicy: false }));
+// Trust reverse proxy (Task 3: Render runs behind a reverse proxy; without this all clients share the proxy IP)
+app.set("trust proxy", 1);
 
-// Rate limiter for Auth routes (15 requests per 15 minutes)
-const authLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 15,
-  message: {
-    success: false,
-    message: "Too many requests from this IP, please try again after 15 minutes.",
-  },
-  standardHeaders: true,
-  legacyHeaders: false,
-});
+// Security Headers (Task 4: Enable Helmet with default secure headers including CSP for JSON API)
+app.use(helmet());
 
 // ============================================
 // CORS Configuration
@@ -76,7 +89,8 @@ app.use(
 app.use(express.json({ limit: "1mb" }));
 app.use(express.urlencoded({ limit: "1mb", extended: true }));
 
-// Apply rate limiter to sensitive auth endpoints
+// Rate limiters (Task 3)
+app.use("/api", generalApiLimiter);
 app.use("/api/auth/login", authLimiter);
 app.use("/api/auth/register", authLimiter);
 
@@ -110,6 +124,9 @@ const io = new Server(server, {
     allowedHeaders: ["Content-Type", "Authorization"],
   },
   transports: ["websocket", "polling"],
+  maxHttpBufferSize: 1e6, // 1MB payload limit (Task 1)
+  pingTimeout: 20000,     // 20s ping timeout (Task 1)
+  pingInterval: 25000,
   reconnection: true,
   reconnectionDelay: 1000,
   reconnectionDelayMax: 5000,
@@ -123,16 +140,11 @@ app.set("io", io);
 socketHandler(io);
 
 // ============================================
-// Error Handling Middleware
+// 404 & Central Error Handling Middleware (Task 5)
 // ============================================
-app.use((err, req, res, next) => {
-  console.error("Error:", err);
-  res.status(err.status || 500).json({
-    success: false,
-    message: err.message || "Server Error",
-    error: process.env.NODE_ENV === "development" ? err : {},
-  });
-});
+app.use("/api", notFound);
+app.use(notFound);
+app.use(errorHandler);
 
 // ============================================
 // Start Server

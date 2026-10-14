@@ -48,7 +48,13 @@ const messageSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-// Compound indexes for fast query performance
+// Compound indexes for fast query performance (Task 8)
+messageSchema.index({ sender: 1, receiver: 1, createdAt: -1 });
+messageSchema.index({ receiver: 1, sender: 1, createdAt: -1 });
+messageSchema.index({ receiver: 1, createdAt: -1 });
+messageSchema.index({ sender: 1, createdAt: -1 });
+messageSchema.index({ receiver: 1, sender: 1, status: 1 });
+messageSchema.index({ receiver: 1, sender: 1, status: 1, isDeleted: 1 });
 messageSchema.index({ sender: 1, receiver: 1, isDeleted: 1, createdAt: -1 });
 messageSchema.index({ receiver: 1, status: 1, isDeleted: 1 });
 
